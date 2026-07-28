@@ -86,11 +86,21 @@
     }
     const push = (a) => {
       if (!a || !a.aweme_id || !a.statistics) return;
+      const digg = num(a.statistics.digg_count);
+      const comment = num(a.statistics.comment_count);
+      const collect = num(a.statistics.collect_count);
+      const ct = num(a.create_time);
+      const ageDays = ct > 0 ? Math.max(1, (Date.now() / 1000 - ct) / 86400) : 0;
       videos.set(String(a.aweme_id), {
-        digg: num(a.statistics.digg_count),
-        comment: num(a.statistics.comment_count),
-        collect: num(a.statistics.collect_count),
+        digg, comment, collect,
         share: num(a.statistics.share_count),
+        desc: String(a.desc || ''),
+        author: String((a.author && a.author.nickname) || ''),
+        ct,
+        // 派生指标：藏赞比（干货度）、评赞比（互动度）、日均点赞（增速）
+        cr: digg > 0 ? collect / digg : 0,
+        er: digg > 0 ? comment / digg : 0,
+        dpd: ageDays > 0 ? Math.round(digg / ageDays) : 0,
       });
     };
     if (Array.isArray(json.aweme_list)) json.aweme_list.forEach(push);
@@ -140,7 +150,8 @@
       const parent = cards[0].el.parentElement;
       if (!parent) return;
 
-      // 角标
+      // 黑马标记 + 角标
+      computeMarks();
       if (S.badge) for (const c of cards) { if (c.v) addBadge(c.el, c.v); }
       else removeBadges();
 
@@ -237,14 +248,39 @@
     },
   };
 
+  const pct = (r) => (r * 100).toFixed(1) + '%';
+
+  // 黑马标记：在"当前已捕获的这批结果"内做相对比较（前 10% 分位）
+  //   🔥 发布 ≤30 天且日均点赞进前 10% —— 正在起飞的选题
+  //   💎 藏赞比进前 10%（点赞≥100 才参评，排除小样本噪音）—— 干货密度高
+  function computeMarks() {
+    const vs = [...videos.values()];
+    for (const v of vs) { v.hot = false; v.gem = false; }
+    if (vs.length < 5) return; // 样本太少，分位数没意义
+    const q90 = (arr) => arr.length ? [...arr].sort((a, b) => a - b)[Math.floor(arr.length * 0.9)] : Infinity;
+    const dpdTop = q90(vs.map((v) => v.dpd));
+    const crTop = q90(vs.filter((v) => v.digg >= 100).map((v) => v.cr));
+    const now = Date.now() / 1000;
+    for (const v of vs) {
+      v.hot = v.ct > 0 && (now - v.ct) / 86400 <= 30 && v.dpd > 0 && v.dpd >= dpdTop;
+      v.gem = v.digg >= 100 && v.cr > 0 && v.cr >= crTop;
+    }
+  }
+
   function addBadge(root, v) {
     let b = root.querySelector('.dsp-badge');
     if (!b) {
       b = document.createElement('div');
       b.className = 'dsp-badge';
+      b.append(document.createElement('div'), document.createElement('div'));
       root.appendChild(b);
     }
-    b.textContent = `赞${fmt(v.digg)} 评${fmt(v.comment)} 藏${fmt(v.collect)}`;
+    const marks = (v.hot ? '🔥' : '') + (v.gem ? '💎' : '');
+    const l1 = `${marks}赞${fmt(v.digg)} 评${fmt(v.comment)} 藏${fmt(v.collect)}`;
+    const l2 = `藏/赞${pct(v.cr)} 评/赞${pct(v.er)} 日增${fmt(v.dpd)}`;
+    // 内容没变就不动 DOM，减少闪烁
+    if (b.children[0].textContent !== l1) b.children[0].textContent = l1;
+    if (b.children[1].textContent !== l2) b.children[1].textContent = l2;
   }
   function removeBadges() {
     document.querySelectorAll('.dsp-badge').forEach((b) => b.remove());
@@ -391,6 +427,33 @@
     },
   });
 
+  // ============ CSV 导出 ============
+  function exportCsv() {
+    if (!videos.size) return toast('还没捕获到数据，先搜索并加载一些结果');
+    computeMarks();
+    const rows = [['标题', '作者', '发布时间', '点赞', '评论', '收藏', '分享', '藏赞比', '评赞比', '日均点赞', '黑马', '链接']];
+    for (const [id, v] of videos) {
+      rows.push([
+        v.desc, v.author,
+        v.ct > 0 ? new Date(v.ct * 1000).toISOString().slice(0, 10) : '',
+        v.digg, v.comment, v.collect, v.share,
+        pct(v.cr), pct(v.er), v.dpd,
+        (v.hot ? '🔥' : '') + (v.gem ? '💎' : ''),
+        'https://www.douyin.com/video/' + id,
+      ]);
+    }
+    // BOM 让 Excel 正确识别 UTF-8 中文
+    const csv = '﻿' + rows.map((r) => r.map((c) => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    let kw = '抖音搜索';
+    try { kw = decodeURIComponent((lastKeyword || '').split('|')[0]) || kw; } catch {}
+    a.download = `抖音_${kw}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(`已导出 ${videos.size} 条`);
+  }
+
   // ============ UI：底部胶囊工具条 ============
   function h(tag, cls, text) {
     const el = document.createElement(tag);
@@ -430,7 +493,7 @@
       // -- 搜索组 --
       const gSearch = h('div', 'dsp-group');
       gSearch.append(h('span', 'dsp-label', '排序'));
-      for (const [key, label] of [['digg', '点赞'], ['comment', '评论'], ['collect', '收藏'], ['share', '分享']]) {
+      for (const [key, label] of [['digg', '点赞'], ['comment', '评论'], ['collect', '收藏'], ['share', '分享'], ['cr', '藏赞比'], ['er', '评赞比']]) {
         const chip = h('button', 'dsp-chip', label);
         chip.title = '可多选：同时点亮多个维度时按"各维度名次之和"组合排序';
         chip.addEventListener('click', () => {
@@ -453,8 +516,11 @@
         if (searchLoad.running) searchLoad.stop('已停止');
         else searchLoad.start();
       });
+      const csvChip = h('button', 'dsp-chip', '导出');
+      csvChip.title = '把已捕获的结果导出为 CSV（含数据、比率、黑马标记、链接）';
+      csvChip.addEventListener('click', exportCsv);
       const count = h('span', 'dsp-count', '');
-      gSearch.append(filterChip, loadChip, count);
+      gSearch.append(filterChip, loadChip, csvChip, count);
       this.els.gSearch = gSearch;
       this.els.filterChip = filterChip;
       this.els.loadChip = loadChip;
@@ -516,7 +582,8 @@
       const cbl = document.createElement('label');
       cbl.htmlFor = 'dsp-cb'; cbl.className = 'dsp-pop-lbl'; cbl.textContent = '卡片显示数据角标';
       bRow.append(cb, cbl);
-      this.pop.append(bRow, h('div', 'dsp-pop-hint', '排序/筛选只针对已加载的结果，建议先"加载更多"'));
+      this.pop.append(bRow, h('div', 'dsp-pop-hint',
+        '排序/筛选只针对已加载的结果，建议先"加载更多"。角标含义：🔥=30天内高增速黑马，💎=高收藏率干货（均为当前结果前10%）'));
       document.addEventListener('click', () => this.pop.classList.add('dsp-none'));
 
       document.body.append(this.bar, this.dot, this.pop);
@@ -574,7 +641,7 @@
       if (sortActive() || (S.badge && videos.size)) search.apply();
       ui.refresh();
     }, 1500);
-    log('DouyinSearchPlus v0.3 已就绪');
+    log('DouyinSearchPlus v0.4 已就绪');
   }
   init();
 })();
