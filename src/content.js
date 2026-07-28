@@ -493,9 +493,17 @@
       // -- 搜索组 --
       const gSearch = h('div', 'dsp-group');
       gSearch.append(h('span', 'dsp-label', '排序'));
-      for (const [key, label] of [['digg', '点赞'], ['comment', '评论'], ['collect', '收藏'], ['share', '分享'], ['cr', '藏赞比'], ['er', '评赞比']]) {
+      const SORT_TIPS = [
+        ['digg', '点赞', '按点赞数排序。点赞高 = 大众认可度高，但不代表深度'],
+        ['comment', '评论', '按评论数排序。评论多 = 话题性/争议性强，评论区有选题金矿'],
+        ['collect', '收藏', '按收藏数排序。收藏多 = 观众想存着回看的实用干货'],
+        ['share', '分享', '按分享数排序。分享多 = 观众愿意转发，自带传播力'],
+        ['cr', '藏赞比', '收藏÷点赞，比值高说明是观众存着回看的干货（教程类核心指标）'],
+        ['er', '评赞比', '评论÷点赞，比值高说明话题性强、评论区值得挖'],
+      ];
+      for (const [key, label, tip] of SORT_TIPS) {
         const chip = h('button', 'dsp-chip', label);
-        chip.title = '可多选：同时点亮多个维度时按"各维度名次之和"组合排序';
+        chip.title = tip + '。可多选：点亮多个维度时按各维度名次之和组合排序';
         chip.addEventListener('click', () => {
           if (S.sortKeys.has(key)) S.sortKeys.delete(key);   // 再点一次 = 取消该维度
           else {
@@ -510,8 +518,10 @@
         gSearch.append(chip);
       }
       const filterChip = h('button', 'dsp-chip', '筛选');
+      filterChip.title = '设置阈值（只看 赞/评/藏 ≥ N 的结果）和角标开关';
       filterChip.addEventListener('click', (e) => { e.stopPropagation(); this.togglePop(); });
       const loadChip = h('button', 'dsp-chip', '加载更多');
+      loadChip.title = '自动下拉加载搜索结果攒样本（上限300条）。加载得越多，排序越接近真实情况';
       loadChip.addEventListener('click', () => {
         if (searchLoad.running) searchLoad.stop('已停止');
         else searchLoad.start();
@@ -530,6 +540,7 @@
       const gComment = h('div', 'dsp-group');
       gComment.append(h('span', 'dsp-label', '评论'));
       const cSort = h('button', 'dsp-chip', '按赞排序');
+      cSort.title = '把当前视频的评论按点赞数从多到少排列，再点一次恢复默认顺序';
       cSort.addEventListener('click', () => {
         if (S.commentSorted) { commentSort.disable(); toast('已恢复默认顺序'); }
         else {
@@ -539,6 +550,7 @@
         this.refresh();
       });
       const cLoad = h('button', 'dsp-chip', '加载全部');
+      cLoad.title = '自动下拉加载全部评论（上限1000条），加载完再排序才是完整排名';
       cLoad.addEventListener('click', () => {
         if (commentLoad.running) commentLoad.stop('已停止');
         else {
