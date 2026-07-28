@@ -1,0 +1,580 @@
+// 内容脚本（隔离世界）
+// 界面：页面底部一条胶囊工具条，按当前页面自动显示对应功能。
+//
+// 实测确认的页面结构（2026-07）：
+//   搜索卡片   div#waterfall_item_<视频ID>，绝对定位瀑布流（transform 摆位）
+//              —— 所以排序方式是"自己重算瀑布流坐标"，不是 CSS order
+//   评论列表   [data-e2e="comment-list"] 的直接子级是每条评论的包装 div，
+//              内部是 [data-e2e="comment-item"]；正常文档流，可用 CSS order
+//   评论点赞数 评论元素内第一个"独立纯数字"文本节点（回复数在"展开N条回复"里，排除）
+//
+// 调试：控制台执行 localStorage.DSP_DEBUG = '1' 后刷新
+(() => {
+  'use strict';
+  if (window.__DSP_CONTENT__) return;
+  window.__DSP_CONTENT__ = true;
+
+  const SIG = 'DSP_DATA';
+  const DEBUG = () => { try { return localStorage.DSP_DEBUG === '1'; } catch { return false; } };
+  const log = (...a) => { if (DEBUG()) console.log('[DSP]', ...a); };
+
+  const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  const fmt = (n) => (n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(n));
+
+  // ============ 状态 ============
+  const videos = new Map();    // aweme_id -> {digg, comment, collect, share}
+  let comments = new Map();    // cid -> {text, digg}
+  let commentAwemeId = null;
+  let lastKeyword = null;
+
+  const S = {                  // 用户设置
+    sortKeys: new Set(),       // 'digg' | 'comment' | 'collect' | 'share'，可多选组合
+    th: { digg: 0, comment: 0, collect: 0 },
+    badge: true,
+    commentSorted: false,
+  };
+  const sortActive = () => S.sortKeys.size > 0 || S.th.digg > 0 || S.th.comment > 0 || S.th.collect > 0;
+  try { S.badge = (localStorage.DSP_BADGE ?? '1') === '1'; } catch {}
+
+  // ============ 数据接收与解析 ============
+  // 容错解析：整体 JSON 失败时按大括号配对切出多个顶层 JSON（兼容流式响应）
+  function parseJsonChunks(text) {
+    try { return [JSON.parse(text)]; } catch {}
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') { if (depth === 0) start = i; depth++; }
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          try { out.push(JSON.parse(text.slice(start, i + 1))); } catch {}
+          start = -1;
+        }
+      }
+    }
+    return out;
+  }
+
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (!d || d.source !== SIG || typeof d.text !== 'string') return;
+    try {
+      const docs = parseJsonChunks(d.text);
+      if (d.kind === 'search') docs.forEach((j) => intakeSearch(j, d.url));
+      else if (d.kind === 'comments') docs.forEach((j) => intakeComments(d.url, j));
+    } catch (e) { log('intake error', e); }
+  });
+
+  function intakeSearch(json, url) {
+    // 搜索会话签名 = 关键词 + 原生筛选参数（filter_selected，实测确认）
+    // 换关键词或切换原生筛选（发布时间/时长/排序依据）都会开启新会话 → 清空重新统计，
+    // 避免把上一批结果混进当前排序里
+    const kw = (/[?&]keyword=([^&]+)/.exec(url || '') || [])[1] || '';
+    const fs = (/[?&]filter_selected=([^&]+)/.exec(url || '') || [])[1] || '';
+    const sig = kw + '|' + fs;
+    if (kw && sig !== lastKeyword) {
+      if (lastKeyword !== null) { videos.clear(); log('搜索会话变更，清空数据', sig); }
+      lastKeyword = sig;
+    }
+    const push = (a) => {
+      if (!a || !a.aweme_id || !a.statistics) return;
+      videos.set(String(a.aweme_id), {
+        digg: num(a.statistics.digg_count),
+        comment: num(a.statistics.comment_count),
+        collect: num(a.statistics.collect_count),
+        share: num(a.statistics.share_count),
+      });
+    };
+    if (Array.isArray(json.aweme_list)) json.aweme_list.forEach(push);
+    if (Array.isArray(json.data)) json.data.forEach((it) => it && push(it.aweme_info));
+    log('搜索数据累计', videos.size);
+    ui.refresh();
+    search.schedule();
+  }
+
+  function intakeComments(url, json) {
+    const m = /[?&](?:aweme_id|item_id)=(\d+)/.exec(url || '');
+    const aid = m ? m[1] : null;
+    if (aid && aid !== commentAwemeId) { comments = new Map(); commentAwemeId = aid; }
+    const list = Array.isArray(json.comments) ? json.comments : [];
+    for (const c of list) {
+      if (!c || !c.cid) continue;
+      comments.set(String(c.cid), { text: String(c.text || ''), digg: num(c.digg_count) });
+    }
+    log('评论数据累计', comments.size);
+    ui.refresh();
+    if (S.commentSorted) commentSort.schedule();
+  }
+
+  // ============ 搜索结果：瀑布流重排 ============
+  const search = {
+    timer: null,
+    schedule() { clearTimeout(this.timer); this.timer = setTimeout(() => this.apply(), 400); },
+
+    cards() {
+      return [...document.querySelectorAll('[id^="waterfall_item_"]')].map((el) => {
+        const id = el.id.slice('waterfall_item_'.length);
+        const t = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform || '');
+        return {
+          el, id,
+          v: videos.get(id) || null,
+          x: t ? parseFloat(t[1]) : 0,
+          y: t ? parseFloat(t[2]) : 0,
+          h: parseFloat(el.style.height) || el.getBoundingClientRect().height || 300,
+        };
+      });
+    },
+
+    wasActive: false,
+    apply() {
+      const cards = this.cards();
+      if (!cards.length) return;
+      const parent = cards[0].el.parentElement;
+      if (!parent) return;
+
+      // 角标
+      if (S.badge) for (const c of cards) { if (c.v) addBadge(c.el, c.v); }
+      else removeBadges();
+
+      const active = sortActive();
+      if (!active) {
+        // 刚从排序状态退出 → 恢复一次原始布局
+        if (this.wasActive) { this.restore(cards, parent); this.wasActive = false; }
+        // 空闲时持续刷新"原始位置"快照（此时布局归抖音管，是最新的）
+        parent.dataset.dspH = parent.style.height || '';
+        for (const c of cards) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+        ui.refresh();
+        return;
+      }
+      this.wasActive = true;
+      // 排序中途新加载的卡片：第一次见到时记住抖音给它的原始位置
+      if (!('dspH' in parent.dataset)) parent.dataset.dspH = parent.style.height || '';
+      for (const c of cards) {
+        if (!('dspOrig' in c.el.dataset)) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+      }
+      if (cards.length < 2) return;
+
+      // 阈值过滤
+      const pass = (c) => !c.v || (c.v.digg >= S.th.digg && c.v.comment >= S.th.comment && c.v.collect >= S.th.collect);
+      const shown = [], hidden = [];
+      for (const c of cards) (pass(c) ? shown : hidden).push(c);
+      for (const c of hidden) c.el.classList.add('dsp-hide');
+      for (const c of shown) c.el.classList.remove('dsp-hide');
+
+      // 排序（无数据的卡片保持相对原位置，排在最后）
+      const keys = [...S.sortKeys];
+      const byPos = (a, b) => (a.y - b.y) || (a.x - b.x);
+      let order;
+      if (keys.length === 1) {
+        const k = keys[0];
+        const withData = shown.filter((c) => c.v).sort((a, b) => (b.v[k] - a.v[k]) || (a.id < b.id ? -1 : 1));
+        order = withData.concat(shown.filter((c) => !c.v).sort(byPos));
+      } else if (keys.length > 1) {
+        // 组合排序：名次和。每个维度各排一次名，名次相加，总名次小的排前面。
+        // 用名次而不是数值相加，避免点赞（十万级）淹没评论（百级）。
+        const withData = shown.filter((c) => c.v);
+        const rankSum = new Map();
+        for (const k of keys) {
+          [...withData].sort((a, b) => b.v[k] - a.v[k])
+            .forEach((c, i) => rankSum.set(c, (rankSum.get(c) || 0) + i));
+        }
+        withData.sort((a, b) => (rankSum.get(a) - rankSum.get(b)) || (a.id < b.id ? -1 : 1));
+        order = withData.concat(shown.filter((c) => !c.v).sort(byPos));
+      } else {
+        order = [...shown].sort(byPos);
+      }
+
+      // 从现有几何信息反推瀑布流参数：列 x 坐标、顶部 y、纵向间距
+      const xs = [...new Set(cards.map((c) => Math.round(c.x)))].sort((a, b) => a - b);
+      if (xs.length < 2) return; // 结构异常，不动
+      const topY = Math.min(...cards.map((c) => c.y));
+      const gaps = [];
+      const byCol = new Map();
+      for (const c of [...cards].sort(byPos)) {
+        const cx = Math.round(c.x);
+        if (byCol.has(cx)) {
+          const prev = byCol.get(cx);
+          const g = c.y - (prev.y + prev.h);
+          if (g > 0 && g < 80) gaps.push(g);
+        }
+        byCol.set(cx, c);
+      }
+      gaps.sort((a, b) => a - b);
+      const gapY = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 24;
+
+      // 按排序结果重新摆瀑布流：每张卡放进当前最矮的列
+      const colH = xs.map(() => topY);
+      for (const c of order) {
+        let ci = 0;
+        for (let i = 1; i < colH.length; i++) if (colH[i] < colH[ci]) ci = i;
+        c.el.style.transform = `translate(${xs[ci]}px, ${colH[ci]}px)`;
+        c.el.style.visibility = 'visible';
+        colH[ci] += c.h + gapY;
+      }
+      parent.style.height = Math.max(...colH) + 40 + 'px';
+      ui.refresh(shown.length, cards.length);
+    },
+
+    restore(cards, parent) {
+      cards = cards || this.cards();
+      if (!cards.length) return;
+      parent = parent || cards[0].el.parentElement;
+      for (const c of cards) {
+        c.el.classList.remove('dsp-hide');
+        if (c.el.dataset.dspOrig) {
+          c.el.style.transform = c.el.dataset.dspOrig === 'none' ? '' : c.el.dataset.dspOrig;
+        }
+      }
+      if (parent && parent.dataset.dspH !== undefined) parent.style.height = parent.dataset.dspH;
+    },
+  };
+
+  function addBadge(root, v) {
+    let b = root.querySelector('.dsp-badge');
+    if (!b) {
+      b = document.createElement('div');
+      b.className = 'dsp-badge';
+      root.appendChild(b);
+    }
+    b.textContent = `赞${fmt(v.digg)} 评${fmt(v.comment)} 藏${fmt(v.collect)}`;
+  }
+  function removeBadges() {
+    document.querySelectorAll('.dsp-badge').forEach((b) => b.remove());
+  }
+
+  // ============ 评论区：按点赞排序 ============
+  const commentSort = {
+    timer: null, iv: null,
+    schedule() { clearTimeout(this.timer); this.timer = setTimeout(() => this.apply(), 300); },
+
+    // comment-list 的直接子级中包含 comment-item 的包装 div
+    rows() {
+      const list = document.querySelector('[data-e2e="comment-list"]');
+      if (!list) return { list: null, rows: [] };
+      const rows = [...list.children].filter((el) => el.querySelector('[data-e2e="comment-item"]'));
+      return { list, rows };
+    },
+
+    enable() {
+      S.commentSorted = true;
+      this.apply();
+      clearInterval(this.iv);
+      this.iv = setInterval(() => this.apply(), 2000); // 对抗 React 重渲染 + 新评论加载
+    },
+    disable() {
+      S.commentSorted = false;
+      clearInterval(this.iv);
+      const { list, rows } = this.rows();
+      for (const r of rows) r.style.order = '';
+      if (list) list.classList.remove('dsp-flexcol');
+    },
+
+    apply() {
+      if (!S.commentSorted) return;
+      const { list, rows } = this.rows();
+      if (!list || rows.length < 2) return;
+      const apiList = [...comments.values()];
+      const used = new Set();
+      const scored = rows.map((el, idx) => {
+        // 优先用接口数据（评论文本前 12 字配对）
+        let digg = null;
+        const txt = el.textContent || '';
+        for (const c of apiList) {
+          if (used.has(c)) continue;
+          const key = c.text.trim().slice(0, 12);
+          if (key.length >= 3 && txt.includes(key)) { digg = c.digg; used.add(c); break; }
+        }
+        // 兜底：直接读页面上显示的点赞数
+        if (digg == null) digg = parseDomDigg(el);
+        return { el, idx, digg: digg == null ? -1 : digg };
+      });
+      list.classList.add('dsp-flexcol');
+      const sorted = [...scored].sort((a, b) => (b.digg - a.digg) || (a.idx - b.idx));
+      sorted.forEach((s, i) => { s.el.style.order = String(i + 1); });
+      log('评论排序', sorted.map((s) => s.digg).slice(0, 10));
+    },
+  };
+
+  // 从评论元素解析点赞数。实测规律（2026-07）：
+  //   点赞数 = 第一个"旁边带 SVG 图标"的独立纯数字文本（图标+数字结构）
+  //   评论正文里的数字（如 QQ 号）没有图标；回复数在点赞数之后
+  function parseDomDigg(item) {
+    const toNum = (t) => (/[万w]$/.test(t) ? Math.round(parseFloat(t) * 10000) : parseInt(t, 10));
+    const w = document.createTreeWalker(item, NodeFilter.SHOW_TEXT);
+    let n, fallback = null;
+    while ((n = w.nextNode())) {
+      const t = n.textContent.trim();
+      if (!/^\d+(\.\d+)?[万w]?$/.test(t)) continue;
+      const p = n.parentElement;
+      const gp = p && p.parentElement;
+      if (gp && gp.querySelector('svg')) return toNum(t); // 图标+数字 → 点赞数
+      // 无图标兜底：排除"展开N条回复"类文本和过大的数字（点赞过万会带"万"字）
+      const pTxt = (p && p.textContent || '').trim();
+      if (fallback == null && !( pTxt !== t && /展开|回复|分享/.test(pTxt) )) {
+        const v = toNum(t);
+        if (/[万w]$/.test(t) || v < 100000) fallback = v;
+      }
+    }
+    return fallback;
+  }
+
+  // ============ 自动加载 ============
+  function makeLoader(opts) {
+    return {
+      running: false, last: -1, still: 0, t: null,
+      start() {
+        if (this.running) return;
+        this.running = true; this.still = 0; this.last = opts.count();
+        ui.refresh();
+        this.tick();
+      },
+      stop(msg) {
+        if (!this.running) return;
+        this.running = false; clearTimeout(this.t);
+        ui.refresh();
+        if (msg) toast(msg);
+      },
+      tick() {
+        if (!this.running) return;
+        const c = opts.count();
+        if (c >= opts.max) return this.stop(opts.doneMsg(c));
+        if (c === this.last) {
+          if (++this.still >= 6) return this.stop(opts.dryMsg(c));
+        } else { this.still = 0; this.last = c; }
+        opts.scroll();
+        this.t = setTimeout(() => this.tick(), opts.delay + Math.random() * opts.delay);
+      },
+    };
+  }
+
+  const searchLoad = makeLoader({
+    count: () => videos.size,
+    max: 300,
+    delay: 1400,
+    doneMsg: (c) => `已加载 ${c} 条`,
+    dryMsg: (c) => `没有更多了，共 ${c} 条`,
+    scroll: () => {
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      window.scrollBy(0, 10000); // 双保险，两种滚动模型都试
+      const card = document.querySelector('[id^="waterfall_item_"]');
+      let sc = card && card.parentElement;
+      while (sc && sc !== document.body) {
+        if (sc.scrollHeight > sc.clientHeight + 100) { sc.scrollTop = sc.scrollHeight; break; }
+        sc = sc.parentElement;
+      }
+    },
+  });
+
+  const commentLoad = makeLoader({
+    count: () => commentSort.rows().rows.length,
+    max: 1000,
+    delay: 1200,
+    doneMsg: (c) => `已达上限，共 ${c} 条`,
+    dryMsg: (c) => `评论加载完毕，共 ${c} 条`,
+    scroll: () => {
+      const list = document.querySelector('[data-e2e="comment-list"]');
+      if (!list) return;
+      let sc = list.parentElement;
+      while (sc && sc !== document.body) {
+        if (sc.scrollHeight > sc.clientHeight + 100) { sc.scrollTop = sc.scrollHeight; break; }
+        sc = sc.parentElement;
+      }
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    },
+  });
+
+  // ============ UI：底部胶囊工具条 ============
+  function h(tag, cls, text) {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  }
+
+  let toastT = null;
+  function toast(msg) {
+    let el = document.getElementById('dsp-toast');
+    if (!el) { el = h('div', 'dsp-toast'); el.id = 'dsp-toast'; document.body.appendChild(el); }
+    el.textContent = msg;
+    el.classList.add('dsp-show');
+    clearTimeout(toastT);
+    toastT = setTimeout(() => el.classList.remove('dsp-show'), 2400);
+  }
+
+  const ui = {
+    bar: null, dot: null, pop: null,
+    chips: new Map(), // sortKey -> chip
+    els: {},
+
+    build() {
+      if (document.getElementById('dsp-bar')) return;
+
+      // 收起状态的小圆点
+      this.dot = h('div', 'dsp-dot dsp-none', '抖+');
+      this.dot.id = 'dsp-dot';
+      this.dot.title = '展开抖音搜索增强';
+      this.dot.addEventListener('click', () => this.setCollapsed(false));
+
+      // 工具条
+      this.bar = h('div', 'dsp-bar');
+      this.bar.id = 'dsp-bar';
+
+      // -- 搜索组 --
+      const gSearch = h('div', 'dsp-group');
+      gSearch.append(h('span', 'dsp-label', '排序'));
+      for (const [key, label] of [['digg', '点赞'], ['comment', '评论'], ['collect', '收藏'], ['share', '分享']]) {
+        const chip = h('button', 'dsp-chip', label);
+        chip.title = '可多选：同时点亮多个维度时按"各维度名次之和"组合排序';
+        chip.addEventListener('click', () => {
+          if (S.sortKeys.has(key)) S.sortKeys.delete(key);   // 再点一次 = 取消该维度
+          else {
+            if (!videos.size) return toast('还没捕获到数据，滚动页面加载一些结果试试');
+            S.sortKeys.add(key);
+          }
+          if (S.sortKeys.size > 1) toast('组合排序：按各维度名次之和');
+          this.refresh();
+          search.apply();
+        });
+        this.chips.set(key, chip);
+        gSearch.append(chip);
+      }
+      const filterChip = h('button', 'dsp-chip', '筛选');
+      filterChip.addEventListener('click', (e) => { e.stopPropagation(); this.togglePop(); });
+      const loadChip = h('button', 'dsp-chip', '加载更多');
+      loadChip.addEventListener('click', () => {
+        if (searchLoad.running) searchLoad.stop('已停止');
+        else searchLoad.start();
+      });
+      const count = h('span', 'dsp-count', '');
+      gSearch.append(filterChip, loadChip, count);
+      this.els.gSearch = gSearch;
+      this.els.filterChip = filterChip;
+      this.els.loadChip = loadChip;
+      this.els.count = count;
+
+      // -- 评论组 --
+      const gComment = h('div', 'dsp-group');
+      gComment.append(h('span', 'dsp-label', '评论'));
+      const cSort = h('button', 'dsp-chip', '按赞排序');
+      cSort.addEventListener('click', () => {
+        if (S.commentSorted) { commentSort.disable(); toast('已恢复默认顺序'); }
+        else {
+          if (!commentSort.rows().rows.length) return toast('先让评论区显示出来');
+          commentSort.enable();
+        }
+        this.refresh();
+      });
+      const cLoad = h('button', 'dsp-chip', '加载全部');
+      cLoad.addEventListener('click', () => {
+        if (commentLoad.running) commentLoad.stop('已停止');
+        else {
+          if (!commentSort.rows().rows.length) return toast('先让评论区显示出来');
+          commentLoad.start();
+        }
+      });
+      gComment.append(cSort, cLoad);
+      this.els.gComment = gComment;
+      this.els.cSort = cSort;
+      this.els.cLoad = cLoad;
+
+      // -- 收起按钮 --
+      const min = h('button', 'dsp-chip dsp-min', '—');
+      min.title = '收起';
+      min.addEventListener('click', () => this.setCollapsed(true));
+
+      this.bar.append(gSearch, h('span', 'dsp-sep'), gComment, min);
+
+      // -- 筛选弹层 --
+      this.pop = h('div', 'dsp-pop dsp-none');
+      this.pop.id = 'dsp-pop';
+      this.pop.addEventListener('click', (e) => e.stopPropagation());
+      for (const [key, label] of [['digg', '点赞 ≥'], ['comment', '评论 ≥'], ['collect', '收藏 ≥']]) {
+        const row = h('div', 'dsp-pop-row');
+        const inp = document.createElement('input');
+        inp.type = 'number'; inp.min = '0'; inp.placeholder = '不限';
+        inp.className = 'dsp-input';
+        inp.addEventListener('change', () => { S.th[key] = num(inp.value); search.apply(); this.refresh(); });
+        row.append(h('span', 'dsp-pop-lbl', label), inp);
+        this.pop.append(row);
+      }
+      const bRow = h('div', 'dsp-pop-row');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.id = 'dsp-cb'; cb.checked = S.badge;
+      cb.addEventListener('change', () => {
+        S.badge = cb.checked;
+        try { localStorage.DSP_BADGE = cb.checked ? '1' : '0'; } catch {}
+        search.apply();
+      });
+      const cbl = document.createElement('label');
+      cbl.htmlFor = 'dsp-cb'; cbl.className = 'dsp-pop-lbl'; cbl.textContent = '卡片显示数据角标';
+      bRow.append(cb, cbl);
+      this.pop.append(bRow, h('div', 'dsp-pop-hint', '排序/筛选只针对已加载的结果，建议先"加载更多"'));
+      document.addEventListener('click', () => this.pop.classList.add('dsp-none'));
+
+      document.body.append(this.bar, this.dot, this.pop);
+      this.refresh();
+    },
+
+    togglePop() {
+      this.pop.classList.toggle('dsp-none');
+    },
+    setCollapsed(c) {
+      this.bar.classList.toggle('dsp-none', c);
+      this.dot.classList.toggle('dsp-none', !c);
+      this.pop.classList.add('dsp-none');
+    },
+
+    // 按当前页面状态刷新工具条（哪些组可见、选中态、计数）
+    refresh(shown, total) {
+      if (!this.bar) return;
+      const hasCards = !!document.querySelector('[id^="waterfall_item_"]');
+      const hasComments = !!document.querySelector('[data-e2e="comment-list"]');
+      this.els.gSearch.classList.toggle('dsp-none', !hasCards);
+      this.els.gComment.classList.toggle('dsp-none', !hasComments);
+      this.bar.querySelector('.dsp-sep').classList.toggle('dsp-none', !(hasCards && hasComments));
+      // 两个组都没有 → 整条隐藏（保留小圆点也没意义，全部隐藏）
+      const anything = hasCards || hasComments;
+      if (!anything) { this.bar.classList.add('dsp-none'); this.dot.classList.add('dsp-none'); }
+      else if (this.dot.classList.contains('dsp-none') && this.bar.classList.contains('dsp-none')) {
+        this.bar.classList.remove('dsp-none'); // 默认展开
+      }
+
+      for (const [k, chip] of this.chips) chip.classList.toggle('dsp-on', S.sortKeys.has(k));
+      const hasTh = S.th.digg > 0 || S.th.comment > 0 || S.th.collect > 0;
+      this.els.filterChip.classList.toggle('dsp-on', hasTh);
+      this.els.loadChip.textContent = searchLoad.running ? `停止(${videos.size})` : '加载更多';
+      this.els.loadChip.classList.toggle('dsp-on', searchLoad.running);
+      this.els.count.textContent = shown != null && shown !== total
+        ? `${shown}/${videos.size}条`
+        : (videos.size ? `${videos.size}条` : '');
+      this.els.cSort.classList.toggle('dsp-on', S.commentSorted);
+      this.els.cSort.textContent = S.commentSorted ? '已按赞排序' : '按赞排序';
+      const cRows = document.querySelectorAll('[data-e2e="comment-item"]').length;
+      this.els.cLoad.textContent = commentLoad.running ? `停止(${cRows})` : '加载全部';
+      this.els.cLoad.classList.toggle('dsp-on', commentLoad.running);
+    },
+  };
+
+  // ============ 启动 ============
+  function init() {
+    if (!document.body) return void setTimeout(init, 300);
+    ui.build();
+    // 定时兜底：React 重渲染会冲掉我们的坐标/角标，这里定期补上，
+    // 同时处理 SPA 导航（工具条被清掉就重建，页面类型变了就刷新显隐）
+    setInterval(() => {
+      if (!document.getElementById('dsp-bar')) ui.build();
+      if (sortActive() || (S.badge && videos.size)) search.apply();
+      ui.refresh();
+    }, 1500);
+    log('DouyinSearchPlus v0.3 已就绪');
+  }
+  init();
+})();

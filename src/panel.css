@@ -1,0 +1,173 @@
+/* ============ 底部胶囊工具条 ============ */
+#dsp-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(18, 20, 30, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font: 13px/1 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #ececf1;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.dsp-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dsp-label {
+  color: #8a8b96;
+  font-size: 12px;
+  margin-right: 2px;
+}
+.dsp-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.dsp-chip {
+  all: unset;
+  padding: 6px 13px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ececf1;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.dsp-chip:hover { background: rgba(255, 255, 255, 0.18); }
+.dsp-chip.dsp-on {
+  background: #fe2c55;
+  color: #fff;
+  font-weight: 600;
+}
+.dsp-chip.dsp-min {
+  padding: 6px 9px;
+  color: #8a8b96;
+  background: transparent;
+}
+.dsp-chip.dsp-min:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+
+.dsp-count {
+  color: #8a8b96;
+  font-size: 12px;
+  min-width: 2em;
+}
+
+/* 收起后的小圆点 */
+.dsp-dot {
+  position: fixed;
+  right: 20px;
+  bottom: 22px;
+  z-index: 2147483000;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #fe2c55;
+  color: #fff;
+  font: 700 13px/40px -apple-system, "Microsoft YaHei", sans-serif;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(254, 44, 85, 0.45);
+  user-select: none;
+  transition: transform 0.15s;
+}
+.dsp-dot:hover { transform: scale(1.1); }
+
+/* ============ 筛选弹层 ============ */
+.dsp-pop {
+  position: fixed;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  z-index: 2147483001;
+  width: 220px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(18, 20, 30, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #ececf1;
+}
+.dsp-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.dsp-pop-lbl { color: #c9cad3; flex: none; }
+.dsp-input {
+  flex: 1;
+  width: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ececf1;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  outline: none;
+}
+.dsp-input:focus { border-color: #fe2c55; }
+.dsp-pop-hint {
+  margin-top: 8px;
+  color: #8a8b96;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* ============ 页面改造工具类 ============ */
+.dsp-none { display: none !important; }
+.dsp-hide { display: none !important; }
+/* 评论排序：列表容器转纵向 flex，包装 div 用 order 排 */
+.dsp-flexcol { display: flex !important; flex-direction: column !important; }
+/* 未设置 order 的子元素（如"加载更多"）排在最后 */
+.dsp-flexcol > * { order: 999999; }
+
+/* 卡片数据角标 */
+.dsp-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 9;
+  background: rgba(0, 0, 0, 0.68);
+  color: #fff;
+  font: 11px/1.4 -apple-system, "Microsoft YaHei", sans-serif;
+  padding: 2px 7px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ============ 提示 ============ */
+.dsp-toast {
+  position: fixed;
+  left: 50%;
+  top: 15%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  padding: 9px 18px;
+  border-radius: 10px;
+  z-index: 2147483002;
+  font: 13px/1.6 -apple-system, "Microsoft YaHei", sans-serif;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.dsp-toast.dsp-show { opacity: 1; }
