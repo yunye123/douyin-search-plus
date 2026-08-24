@@ -74,14 +74,15 @@
   });
 
   function intakeSearch(json, url) {
-    // 搜索会话签名 = 关键词 + 原生筛选参数（filter_selected，实测确认）
-    // 换关键词或切换原生筛选（发布时间/时长/排序依据）都会开启新会话 → 清空重新统计，
+    // 会话签名 = 关键词 + 原生筛选参数（搜索页）或博主 ID（主页，sec_user_id）
+    // 换关键词、切换原生筛选、换博主都会开启新会话 → 清空重新统计，
     // 避免把上一批结果混进当前排序里
     const kw = (/[?&]keyword=([^&]+)/.exec(url || '') || [])[1] || '';
     const fs = (/[?&]filter_selected=([^&]+)/.exec(url || '') || [])[1] || '';
-    const sig = kw + '|' + fs;
-    if (kw && sig !== lastKeyword) {
-      if (lastKeyword !== null) { videos.clear(); log('搜索会话变更，清空数据', sig); }
+    const su = (/[?&]sec_user_id=([^&]+)/.exec(url || '') || [])[1] || '';
+    const sig = kw + '|' + fs + '|' + su;
+    if ((kw || su) && sig !== lastKeyword) {
+      if (lastKeyword !== null) { videos.clear(); log('会话变更，清空数据', sig); }
       lastKeyword = sig;
     }
     const push = (a) => {
@@ -129,24 +130,48 @@
     timer: null,
     schedule() { clearTimeout(this.timer); this.timer = setTimeout(() => this.apply(), 400); },
 
+    // 两种页面布局，自动识别：
+    //   waterfall —— 搜索页瀑布流（绝对定位 transform 摆位，需自己重算坐标）
+    //   order     —— 博主主页作品/喜欢列表（正常文档流，CSS order 即可）
     cards() {
-      return [...document.querySelectorAll('[id^="waterfall_item_"]')].map((el) => {
-        const id = el.id.slice('waterfall_item_'.length);
-        const t = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform || '');
+      const wf = [...document.querySelectorAll('[id^="waterfall_item_"]')];
+      if (wf.length) {
         return {
-          el, id,
-          v: videos.get(id) || null,
-          x: t ? parseFloat(t[1]) : 0,
-          y: t ? parseFloat(t[2]) : 0,
-          h: parseFloat(el.style.height) || el.getBoundingClientRect().height || 300,
+          mode: 'waterfall',
+          cards: wf.map((el, idx) => {
+            const id = el.id.slice('waterfall_item_'.length);
+            const t = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform || '');
+            return {
+              el, id, idx,
+              v: videos.get(id) || null,
+              x: t ? parseFloat(t[1]) : 0,
+              y: t ? parseFloat(t[2]) : 0,
+              h: parseFloat(el.style.height) || el.getBoundingClientRect().height || 300,
+            };
+          }),
         };
-      });
+      }
+      // 主页模式：user-post-list 里带 /video/ 或 /note/ 链接的卡片
+      const list = document.querySelector('[data-e2e="user-post-list"]');
+      if (!list) return { mode: null, cards: [] };
+      const res = [];
+      const seen = new Set();
+      let idx = 0;
+      for (const a of list.querySelectorAll('a[href*="/video/"], a[href*="/note/"]')) {
+        const m = /\/(?:video|note)\/(\d+)/.exec(a.getAttribute('href') || '');
+        if (!m) continue;
+        const root = a.closest('li') || a.closest('span') || a;
+        if (seen.has(root)) continue;
+        seen.add(root);
+        res.push({ el: root, id: m[1], idx: idx++, v: videos.get(m[1]) || null, x: 0, y: 0, h: 0 });
+      }
+      return { mode: 'order', cards: res };
     },
 
     wasActive: false,
     apply() {
-      const cards = this.cards();
-      if (!cards.length) return;
+      const { mode, cards } = this.cards();
+      if (!mode || !cards.length) return;
       const parent = cards[0].el.parentElement;
       if (!parent) return;
 
@@ -158,18 +183,22 @@
       const active = sortActive();
       if (!active) {
         // 刚从排序状态退出 → 恢复一次原始布局
-        if (this.wasActive) { this.restore(cards, parent); this.wasActive = false; }
+        if (this.wasActive) { this.restore(mode, cards, parent); this.wasActive = false; }
         // 空闲时持续刷新"原始位置"快照（此时布局归抖音管，是最新的）
-        parent.dataset.dspH = parent.style.height || '';
-        for (const c of cards) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+        if (mode === 'waterfall') {
+          parent.dataset.dspH = parent.style.height || '';
+          for (const c of cards) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+        }
         ui.refresh();
         return;
       }
       this.wasActive = true;
       // 排序中途新加载的卡片：第一次见到时记住抖音给它的原始位置
-      if (!('dspH' in parent.dataset)) parent.dataset.dspH = parent.style.height || '';
-      for (const c of cards) {
-        if (!('dspOrig' in c.el.dataset)) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+      if (mode === 'waterfall') {
+        if (!('dspH' in parent.dataset)) parent.dataset.dspH = parent.style.height || '';
+        for (const c of cards) {
+          if (!('dspOrig' in c.el.dataset)) c.el.dataset.dspOrig = c.el.style.transform || 'none';
+        }
       }
       if (cards.length < 2) return;
 
@@ -182,7 +211,9 @@
 
       // 排序（无数据的卡片保持相对原位置，排在最后）
       const keys = [...S.sortKeys];
-      const byPos = (a, b) => (a.y - b.y) || (a.x - b.x);
+      const byPos = mode === 'waterfall'
+        ? (a, b) => (a.y - b.y) || (a.x - b.x)
+        : (a, b) => a.idx - b.idx;
       let order;
       if (keys.length === 1) {
         const k = keys[0];
@@ -203,7 +234,15 @@
         order = [...shown].sort(byPos);
       }
 
-      // 从现有几何信息反推瀑布流参数：列 x 坐标、顶部 y、纵向间距
+      if (mode === 'order') {
+        // 主页模式：父容器保证是 flex/grid，然后用 CSS order 排
+        if (!/flex|grid/.test(getComputedStyle(parent).display)) parent.classList.add('dsp-flexwrap');
+        order.forEach((c, i) => { c.el.style.order = String(i + 1); });
+        ui.refresh(shown.length, cards.length);
+        return;
+      }
+
+      // 瀑布流模式：从现有几何信息反推参数（列 x 坐标、顶部 y、纵向间距）
       const xs = [...new Set(cards.map((c) => Math.round(c.x)))].sort((a, b) => a - b);
       if (xs.length < 2) return; // 结构异常，不动
       const topY = Math.min(...cards.map((c) => c.y));
@@ -234,17 +273,25 @@
       ui.refresh(shown.length, cards.length);
     },
 
-    restore(cards, parent) {
-      cards = cards || this.cards();
+    restore(mode, cards, parent) {
+      if (!cards) { const r = this.cards(); mode = r.mode; cards = r.cards; }
       if (!cards.length) return;
       parent = parent || cards[0].el.parentElement;
       for (const c of cards) {
         c.el.classList.remove('dsp-hide');
-        if (c.el.dataset.dspOrig) {
-          c.el.style.transform = c.el.dataset.dspOrig === 'none' ? '' : c.el.dataset.dspOrig;
+        if (mode === 'waterfall') {
+          if (c.el.dataset.dspOrig) {
+            c.el.style.transform = c.el.dataset.dspOrig === 'none' ? '' : c.el.dataset.dspOrig;
+          }
+        } else {
+          c.el.style.order = '';
         }
       }
-      if (parent && parent.dataset.dspH !== undefined) parent.style.height = parent.dataset.dspH;
+      if (mode === 'waterfall') {
+        if (parent && parent.dataset.dspH !== undefined) parent.style.height = parent.dataset.dspH;
+      } else if (parent) {
+        parent.classList.remove('dsp-flexwrap');
+      }
     },
   };
 
@@ -273,6 +320,7 @@
       b = document.createElement('div');
       b.className = 'dsp-badge';
       b.append(document.createElement('div'), document.createElement('div'));
+      root.classList.add('dsp-rel'); // 主页卡片可能是 static 定位，角标需要定位上下文
       root.appendChild(b);
     }
     const marks = (v.hot ? '🔥' : '') + (v.gem ? '💎' : '');
@@ -400,7 +448,9 @@
     scroll: () => {
       window.scrollTo(0, document.documentElement.scrollHeight);
       window.scrollBy(0, 10000); // 双保险，两种滚动模型都试
-      const card = document.querySelector('[id^="waterfall_item_"]');
+      const { cards } = search.cards();
+      const card = cards.length ? cards[cards.length - 1].el : null;
+      if (card) card.scrollIntoView({ block: 'end' });
       let sc = card && card.parentElement;
       while (sc && sc !== document.body) {
         if (sc.scrollHeight > sc.clientHeight + 100) { sc.scrollTop = sc.scrollHeight; break; }
@@ -446,8 +496,10 @@
     const csv = '﻿' + rows.map((r) => r.map((c) => '"' + String(c ?? '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    let kw = '抖音搜索';
-    try { kw = decodeURIComponent((lastKeyword || '').split('|')[0]) || kw; } catch {}
+    // 文件名：搜索页用关键词；主页没有关键词，用第一条视频的作者名
+    let kw = '';
+    try { kw = decodeURIComponent((lastKeyword || '').split('|')[0]); } catch {}
+    if (!kw) kw = [...videos.values()].find((v) => v.author)?.author || '主页作品';
     a.download = `抖音_${kw}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
@@ -521,7 +573,7 @@
       filterChip.title = '设置阈值（只看 赞/评/藏 ≥ N 的结果）和角标开关';
       filterChip.addEventListener('click', (e) => { e.stopPropagation(); this.togglePop(); });
       const loadChip = h('button', 'dsp-chip', '加载更多');
-      loadChip.title = '自动下拉加载搜索结果攒样本（上限300条）。加载得越多，排序越接近真实情况';
+      loadChip.title = '自动下拉加载结果攒样本（上限300条），搜索页和博主主页都可用。加载得越多，排序越接近真实情况';
       loadChip.addEventListener('click', () => {
         if (searchLoad.running) searchLoad.stop('已停止');
         else searchLoad.start();
@@ -614,7 +666,8 @@
     // 按当前页面状态刷新工具条（哪些组可见、选中态、计数）
     refresh(shown, total) {
       if (!this.bar) return;
-      const hasCards = !!document.querySelector('[id^="waterfall_item_"]');
+      const hasCards = !!document.querySelector('[id^="waterfall_item_"]')
+        || !!document.querySelector('[data-e2e="user-post-list"] a[href*="/video/"], [data-e2e="user-post-list"] a[href*="/note/"]');
       const hasComments = !!document.querySelector('[data-e2e="comment-list"]');
       this.els.gSearch.classList.toggle('dsp-none', !hasCards);
       this.els.gComment.classList.toggle('dsp-none', !hasComments);
@@ -653,7 +706,7 @@
       if (sortActive() || (S.badge && videos.size)) search.apply();
       ui.refresh();
     }, 1500);
-    log('DouyinSearchPlus v0.4 已就绪');
+    log('DouyinSearchPlus v0.5 已就绪');
   }
   init();
 })();

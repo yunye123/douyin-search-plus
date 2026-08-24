@@ -1,9 +1,11 @@
 // 运行在页面主世界（MAIN world）：拦截抖音自己发出的接口响应，
 // 把原始文本转发给内容脚本解析。只被动监听，不主动发任何请求。
 //
-// 实测确认的接口（2026-07）：
+// 实测确认的接口（2026-07 / 2026-08）：
 //   搜索结果  /aweme/v1/web/general/search/stream/   （旧版叫 search/single）
 //   评论列表  /aweme/v1/web/comment/list/
+//   博主主页  /aweme/v1/web/aweme/post/（作品）、/aweme/v1/web/aweme/favorite/（喜欢）
+//             返回结构和搜索一样是 aweme_list，所以复用 search 通道
 (() => {
   'use strict';
   if (window.__DSP_HOOKED__) return;
@@ -17,6 +19,8 @@
     if (/\/aweme\/v\d+\/web\/comment\/list/.test(url)) return 'comments';
     // 兼容 stream / single / item 等历史与未来变体
     if (/\/aweme\/v\d+\/web\/(general\/search|search\/(item|single|stream))/.test(url)) return 'search';
+    // 博主主页的作品/喜欢列表，数据结构与搜索相同，共用通道
+    if (/\/aweme\/v\d+\/web\/aweme\/(post|favorite)\//.test(url)) return 'search';
     return null;
   }
 

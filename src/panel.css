@@ -139,6 +139,9 @@
 /* 未设置 order 的子元素（如"加载更多"）排在最后 */
 .dsp-flexcol > * { order: 999999; }
 
+/* 角标的定位上下文（主页卡片可能是 static） */
+.dsp-rel { position: relative !important; }
+
 /* 卡片数据角标 */
 .dsp-badge {
   position: absolute;

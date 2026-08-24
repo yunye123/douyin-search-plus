@@ -1,6 +1,11 @@
 # 抖音搜索增强 DouyinSearchPlus
 
-抖音网页版浏览器插件（Chrome / Edge，MV3）。v0.4.0
+抖音网页版浏览器插件（Chrome / Edge，MV3）。v0.5.0
+
+v0.5 新增：
+- **博主主页模式**：进入任意博主主页（作品/喜欢标签页），工具条自动出现，
+  排序、组合排序、阈值筛选、角标、黑马标记、自动加载、CSV 导出全部可用。
+  换博主自动清零重新统计；主页导出的 CSV 文件名自动带博主昵称
 
 v0.4 新增：
 - **互动率排序**：藏赞比（干货度）、评赞比（互动度）两个新维度，可参与组合排序
@@ -46,6 +51,8 @@ v0.4 新增：
 |---|---|
 | 搜索接口 | `/aweme/v1/web/general/search/stream/`（曾用名 search/single） |
 | 官方筛选参数 | 同一接口的 `filter_selected={"sort_type":"2","publish_time":"7"}` + `is_filter_search=1`，服务端过滤 |
+| 主页作品接口 | `/aweme/v1/web/aweme/post/`（喜欢是 `/aweme/favorite/`），带 `sec_user_id`，返回 `aweme_list`，未登录 403 |
+| 主页卡片 | `[data-e2e="user-post-list"]` 内 `ul[data-e2e="scroll-list"] > li > a[href*=/video/]`，正常文档流，用 CSS order 排 |
 | 评论接口 | `/aweme/v1/web/comment/list/`（reply 是楼中楼，已排除） |
 | 搜索卡片 | `div#waterfall_item_<视频ID>`，绝对定位瀑布流，transform 摆位 |
 | 瀑布流参数 | 3列 x=13/258/503，卡宽220，纵向间距25（代码里动态反推，不写死） |
