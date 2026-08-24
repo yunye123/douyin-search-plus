@@ -125,46 +125,8 @@
     if (S.commentSorted) commentSort.schedule();
   }
 
-  // ============ 主页卡片数据收割 ============
-  // 实测（2026-08）：主页首屏作品是服务端直出的，不发 /aweme/post/ 请求，
-  // 但 React 在卡片元素的 fiber 上挂着完整数据（itemInfo.statistics，camelCase）。
-  // 这里沿 fiber 树向上找和卡片 id 匹配的数据对象，接口拦截只作补充。
-  function harvestFiber(el, id) {
-    try {
-      const fk = Object.keys(el).find((k) => k.startsWith('__reactFiber$'));
-      if (!fk) return null;
-      let fiber = el[fk];
-      for (let i = 0; fiber && i < 30; i++, fiber = fiber.return) {
-        const p = fiber.memoizedProps;
-        if (!p || typeof p !== 'object') continue;
-        for (const key of Object.keys(p)) {
-          const v = p[key];
-          if (!v || typeof v !== 'object') continue;
-          const st = v.statistics || v.stats;
-          if (!st) continue;
-          const vid = String(v.awemeId ?? v.aweme_id ?? '');
-          if (vid !== id) continue;
-          const digg = num(st.diggCount ?? st.digg_count);
-          const comment = num(st.commentCount ?? st.comment_count);
-          const collect = num(st.collectCount ?? st.collect_count);
-          let ct = num(v.createTime ?? v.create_time);
-          if (ct > 1e12) ct = Math.round(ct / 1000); // 毫秒 → 秒
-          const ageDays = ct > 0 ? Math.max(1, (Date.now() / 1000 - ct) / 86400) : 0;
-          return {
-            digg, comment, collect,
-            share: num(st.shareCount ?? st.share_count),
-            desc: String(v.desc || ''),
-            author: String((v.authorInfo && v.authorInfo.nickname) || (v.author && v.author.nickname) || ''),
-            ct,
-            cr: digg > 0 ? collect / digg : 0,
-            er: digg > 0 ? comment / digg : 0,
-            dpd: ageDays > 0 ? Math.round(digg / ageDays) : 0,
-          };
-        }
-      }
-    } catch (e) { log('fiber harvest error', e); }
-    return null;
-  }
+  // 注：主页首屏数据由 inject-main.js 在 MAIN world 从 React fiber 收割后
+  // 经 search 通道发来（fiber 是页面脚本的 JS 属性，本隔离世界看不到）。
 
   // ============ 搜索结果：瀑布流重排 ============
   const search = {
@@ -204,13 +166,7 @@
         const root = a.closest('li') || a.closest('span') || a;
         if (seen.has(root)) continue;
         seen.add(root);
-        // 接口没给的（服务端直出的首屏），从 React fiber 收割
-        let v = videos.get(m[1]) || null;
-        if (!v) {
-          v = harvestFiber(root, m[1]);
-          if (v) videos.set(m[1], v);
-        }
-        res.push({ el: root, id: m[1], idx: idx++, v, x: 0, y: 0, h: 0 });
+        res.push({ el: root, id: m[1], idx: idx++, v: videos.get(m[1]) || null, x: 0, y: 0, h: 0 });
       }
       return { mode: 'order', cards: res };
     },
@@ -767,7 +723,7 @@
       search.apply();
       ui.refresh();
     }, 1500);
-    log('DouyinSearchPlus v0.5.1 已就绪');
+    log('DouyinSearchPlus v0.5.2 已就绪');
   }
   init();
 })();

@@ -135,6 +135,8 @@
 .dsp-none { display: none !important; }
 .dsp-hide { display: none !important; }
 /* 评论排序：列表容器转纵向 flex，包装 div 用 order 排 */
+/* 主页排序：作品列表容器转 flex-wrap，卡片用 order 排（v0.5.1 漏掉了这条，致主页排序无效） */
+.dsp-flexwrap { display: flex !important; flex-wrap: wrap !important; }
 .dsp-flexcol { display: flex !important; flex-direction: column !important; }
 /* 未设置 order 的子元素（如"加载更多"）排在最后 */
 .dsp-flexcol > * { order: 999999; }
