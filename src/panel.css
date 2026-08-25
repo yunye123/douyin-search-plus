@@ -1,3 +1,46 @@
+/* ============================================================
+   抖音搜索增强 —— 设计令牌
+   全部 --dsp- 前缀，避免与抖音自身的 CSS 变量冲突
+   ============================================================ */
+:root {
+  /* 表面 */
+  --dsp-bg: rgba(18, 20, 30, 0.88);
+  --dsp-bg-solid: rgba(18, 20, 30, 0.94);
+  --dsp-border: rgba(255, 255, 255, 0.09);
+  --dsp-border-strong: rgba(255, 255, 255, 0.16);
+  /* 前景三级 */
+  --dsp-fg: #ececf1;
+  --dsp-fg-mid: #c9cad3;
+  --dsp-fg-dim: #8a8b96;
+  /* 填充 */
+  --dsp-fill: rgba(255, 255, 255, 0.08);
+  --dsp-fill-hover: rgba(255, 255, 255, 0.18);
+  --dsp-fill-press: rgba(255, 255, 255, 0.26);
+  --dsp-scrim: rgba(0, 0, 0, 0.68);
+  /* 品牌 */
+  --dsp-accent: #fe2c55;
+  --dsp-accent-2: #25f4ee;
+  --dsp-accent-soft: rgba(254, 44, 85, 0.25);
+  /* 圆角 */
+  --dsp-r-pill: 999px;
+  --dsp-r-lg: 14px;
+  --dsp-r-md: 10px;
+  --dsp-r-sm: 6px;
+  /* 效果 */
+  --dsp-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  --dsp-shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.5);
+  --dsp-blur: blur(14px);
+  --dsp-ease: 0.16s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 排版 */
+  --dsp-font: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --dsp-fs: 13px;
+  --dsp-fs-sm: 12px;
+  --dsp-fs-xs: 11px;
+  /* 间距 */
+  --dsp-gap: 6px;
+  --dsp-gap-lg: 8px;
+}
+
 /* ============ 底部胶囊工具条 ============ */
 #dsp-bar {
   position: fixed;
@@ -7,85 +50,126 @@
   z-index: 2147483000;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--dsp-gap-lg);
   padding: 7px 12px;
-  border-radius: 999px;
-  background: rgba(18, 20, 30, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  font: 13px/1 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #ececf1;
+  border-radius: var(--dsp-r-pill);
+  background: var(--dsp-bg);
+  border: 1px solid var(--dsp-border);
+  box-shadow: var(--dsp-shadow);
+  backdrop-filter: var(--dsp-blur);
+  -webkit-backdrop-filter: var(--dsp-blur);
+  font: var(--dsp-fs) / 1 var(--dsp-font);
+  color: var(--dsp-fg);
   white-space: nowrap;
   user-select: none;
 }
 
+/* 工具条左端的品牌小标（与收起图标同源，保证展开/收起视觉连续） */
+.dsp-brand {
+  display: flex;
+  align-items: center;
+  flex: none;
+  opacity: 0.9;
+}
+.dsp-brand svg { display: block; }
+
 .dsp-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--dsp-gap);
 }
 .dsp-label {
-  color: #8a8b96;
-  font-size: 12px;
+  color: var(--dsp-fg-dim);
+  font-size: var(--dsp-fs-sm);
   margin-right: 2px;
 }
 .dsp-sep {
   width: 1px;
   height: 18px;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--dsp-border-strong);
+  flex: none;
 }
 
+/* -- 数据 chip（排序维度、倒序、筛选、加载、导出） -- */
 .dsp-chip {
   all: unset;
   padding: 6px 13px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #ececf1;
+  border-radius: var(--dsp-r-pill);
+  background: var(--dsp-fill);
+  color: var(--dsp-fg);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--dsp-fs);
   line-height: 1;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dsp-ease), color var(--dsp-ease), transform var(--dsp-ease);
 }
-.dsp-chip:hover { background: rgba(255, 255, 255, 0.18); }
+.dsp-chip:hover { background: var(--dsp-fill-hover); }
+.dsp-chip:active { background: var(--dsp-fill-press); transform: scale(0.96); }
+.dsp-chip:focus-visible { box-shadow: 0 0 0 2px var(--dsp-accent-soft); }
 .dsp-chip.dsp-on {
-  background: #fe2c55;
+  background: var(--dsp-accent);
   color: #fff;
   font-weight: 600;
 }
-.dsp-chip.dsp-min {
-  padding: 6px 9px;
-  color: #8a8b96;
-  background: transparent;
+
+/* -- 图标按钮（电源、收起）：方形轻量，与数据 chip 明确区分 -- */
+.dsp-icon-btn {
+  all: unset;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--dsp-r-md);
+  color: var(--dsp-fg-dim);
+  cursor: pointer;
+  flex: none;
+  transition: background var(--dsp-ease), color var(--dsp-ease), transform var(--dsp-ease);
 }
-.dsp-chip.dsp-min:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
+.dsp-icon-btn:hover { background: var(--dsp-fill-hover); color: var(--dsp-fg); }
+.dsp-icon-btn:active { transform: scale(0.92); }
+.dsp-icon-btn:focus-visible { box-shadow: 0 0 0 2px var(--dsp-accent-soft); }
+.dsp-icon-btn svg { display: block; }
+/* 插件已关闭：电源键点亮为品牌红，提示"点这里恢复" */
+.dsp-icon-btn.dsp-off-state { color: var(--dsp-accent); }
 
 .dsp-count {
-  color: #8a8b96;
-  font-size: 12px;
+  color: var(--dsp-fg-dim);
+  font-size: var(--dsp-fs-sm);
   min-width: 2em;
 }
 
-/* 收起后的小圆点 */
-.dsp-dot {
+/* ============ 收起后的悬浮图标 ============ */
+/* 与工具条同款玻璃质感，内嵌插件 Logo（红青色差柱状图 + 心） */
+#dsp-dot {
   position: fixed;
   right: 20px;
   bottom: 22px;
   z-index: 2147483000;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
-  background: #fe2c55;
-  color: #fff;
-  font: 700 13px/40px -apple-system, "Microsoft YaHei", sans-serif;
-  text-align: center;
+  background: var(--dsp-bg);
+  border: 1px solid var(--dsp-border);
+  box-shadow: var(--dsp-shadow);
+  backdrop-filter: var(--dsp-blur);
+  -webkit-backdrop-filter: var(--dsp-blur);
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(254, 44, 85, 0.45);
   user-select: none;
-  transition: transform 0.15s;
+  transition: transform var(--dsp-ease), box-shadow var(--dsp-ease), opacity var(--dsp-ease), filter var(--dsp-ease);
 }
-.dsp-dot:hover { transform: scale(1.1); }
+#dsp-dot:hover {
+  transform: translateY(-2px) scale(1.06);
+  box-shadow: 0 0 0 3px var(--dsp-accent-soft), var(--dsp-shadow);
+}
+#dsp-dot svg { display: block; }
+/* 排序生效中：柱条转品牌红 */
+#dsp-dot.dsp-active .dsp-logo-bars { fill: var(--dsp-accent); }
+/* 插件已关闭：整体灰化 */
+#dsp-dot.dsp-disabled { filter: grayscale(1); opacity: 0.45; }
+#dsp-dot.dsp-disabled:hover { opacity: 0.75; }
 
 /* ============ 筛选弹层 ============ */
 .dsp-pop {
@@ -96,52 +180,53 @@
   z-index: 2147483001;
   width: 220px;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(18, 20, 30, 0.94);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  font: 13px/1.6 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #ececf1;
+  border-radius: var(--dsp-r-lg);
+  background: var(--dsp-bg-solid);
+  border: 1px solid var(--dsp-border);
+  box-shadow: var(--dsp-shadow-lg);
+  backdrop-filter: var(--dsp-blur);
+  -webkit-backdrop-filter: var(--dsp-blur);
+  font: var(--dsp-fs) / 1.6 var(--dsp-font);
+  color: var(--dsp-fg);
 }
 .dsp-pop-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 6px 0;
+  gap: var(--dsp-gap-lg);
+  margin: var(--dsp-gap) 0;
 }
-.dsp-pop-lbl { color: #c9cad3; flex: none; }
+.dsp-pop-lbl { color: var(--dsp-fg-mid); flex: none; }
 .dsp-input {
   flex: 1;
   width: 60px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #ececf1;
-  border-radius: 8px;
+  background: var(--dsp-fill);
+  border: 1px solid var(--dsp-border-strong);
+  color: var(--dsp-fg);
+  border-radius: var(--dsp-r-sm);
   padding: 4px 8px;
-  font-size: 13px;
+  font-size: var(--dsp-fs);
   outline: none;
+  transition: border-color var(--dsp-ease);
 }
-.dsp-input:focus { border-color: #fe2c55; }
+.dsp-input:focus { border-color: var(--dsp-accent); }
 .dsp-pop-hint {
-  margin-top: 8px;
-  color: #8a8b96;
-  font-size: 11px;
+  margin-top: var(--dsp-gap-lg);
+  color: var(--dsp-fg-dim);
+  font-size: var(--dsp-fs-xs);
   line-height: 1.5;
 }
 
 /* ============ 页面改造工具类 ============ */
 .dsp-none { display: none !important; }
 .dsp-hide { display: none !important; }
-/* 评论排序：列表容器转纵向 flex，包装 div 用 order 排 */
-/* 主页排序：作品列表容器转 flex-wrap，卡片用 order 排（v0.5.1 漏掉了这条，致主页排序无效） */
+/* 主页排序：作品列表容器转 flex-wrap，卡片用 order 排 */
 .dsp-flexwrap { display: flex !important; flex-wrap: wrap !important; }
+/* 评论排序：列表容器转纵向 flex，包装 div 用 order 排 */
 .dsp-flexcol { display: flex !important; flex-direction: column !important; }
 /* 未设置 order 的子元素（如"加载更多"）排在最后 */
 .dsp-flexcol > * { order: 999999; }
 
-/* 角标的定位上下文（主页卡片可能是 static） */
+/* 角标的定位上下文。只给 static 卡片补，绝不覆盖瀑布流卡片的 absolute */
 .dsp-rel { position: relative !important; }
 
 /* 卡片数据角标 */
@@ -150,11 +235,11 @@
   top: 6px;
   left: 6px;
   z-index: 9;
-  background: rgba(0, 0, 0, 0.68);
+  background: var(--dsp-scrim);
   color: #fff;
-  font: 11px/1.4 -apple-system, "Microsoft YaHei", sans-serif;
+  font: var(--dsp-fs-xs) / 1.4 var(--dsp-font);
   padding: 2px 7px;
-  border-radius: 6px;
+  border-radius: var(--dsp-r-sm);
   pointer-events: none;
   white-space: nowrap;
 }
@@ -171,15 +256,15 @@
   text-decoration: none;
   color: inherit;
   display: block;
-  border-radius: 10px;
-  transition: transform 0.15s;
+  border-radius: var(--dsp-r-md);
+  transition: transform var(--dsp-ease);
 }
 .dsp-card:hover { transform: translateY(-3px); }
 .dsp-card-cover {
   position: relative;
   width: 220px;
   height: 292px;
-  border-radius: 10px;
+  border-radius: var(--dsp-r-md);
   overflow: hidden;
   background: rgba(255, 255, 255, 0.06);
 }
@@ -195,26 +280,26 @@
   bottom: 6px;
   background: rgba(0, 0, 0, 0.6);
   color: #fff;
-  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
+  font: var(--dsp-fs-xs) / 1.5 var(--dsp-font);
   padding: 1px 6px;
   border-radius: 5px;
 }
 .dsp-card-stats {
   margin-top: 7px;
-  font: 600 12px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #ececf1;
+  font: 600 var(--dsp-fs-sm) / 1.5 var(--dsp-font);
+  color: var(--dsp-fg);
   white-space: nowrap;
   overflow: hidden;
 }
 .dsp-card-rates {
-  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
-  color: #8a8b96;
+  font: var(--dsp-fs-xs) / 1.5 var(--dsp-font);
+  color: var(--dsp-fg-dim);
   white-space: nowrap;
 }
 .dsp-card-title {
   margin-top: 4px;
-  font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  color: #c9cad3;
+  font: var(--dsp-fs) / 1.5 var(--dsp-font);
+  color: var(--dsp-fg-mid);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -222,8 +307,8 @@
 }
 .dsp-card-meta {
   margin-top: 3px;
-  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
-  color: #8a8b96;
+  font: var(--dsp-fs-xs) / 1.5 var(--dsp-font);
+  color: var(--dsp-fg-dim);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -238,11 +323,22 @@
   background: rgba(0, 0, 0, 0.82);
   color: #fff;
   padding: 9px 18px;
-  border-radius: 10px;
+  border-radius: var(--dsp-r-md);
   z-index: 2147483002;
-  font: 13px/1.6 -apple-system, "Microsoft YaHei", sans-serif;
+  font: var(--dsp-fs) / 1.6 var(--dsp-font);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s;
+  backdrop-filter: var(--dsp-blur);
+  -webkit-backdrop-filter: var(--dsp-blur);
 }
 .dsp-toast.dsp-show { opacity: 1; }
+
+/* 关闭态：功能区变灰不可点（保留可见，让用户知道功能还在） */
+.dsp-dim {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+/* 图标按钮组前的分隔线在两组都隐藏时也要跟着隐藏，避免孤立竖线 */
+.dsp-sep-end { margin-left: 2px; }

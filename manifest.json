@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "抖音搜索增强 DouyinSearchPlus",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "抖音网页版：搜索结果按点赞/评论/收藏/分享排序与阈值筛选，评论区按点赞排序，自动加载更多。",
   "icons": {
     "16": "icons/icon16.png",

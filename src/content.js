@@ -38,13 +38,21 @@
   let lastKeyword = null;
 
   const S = {                  // 用户设置
-    sortKeys: new Set(),       // 'digg' | 'comment' | 'collect' | 'share'，可多选组合
+    sortKeys: new Set(),       // 'digg' | 'comment' | 'collect' | 'share' | 'cr' | 'er'，可多选组合
     th: { digg: 0, comment: 0, collect: 0 },
     badge: true,
     commentSorted: false,
+    asc: false,                // 倒序（从少到多）
+    enabled: true,             // 插件总开关
   };
+  // 注意：S.asc 不参与 sortActive —— 只开倒序不选维度时不该接管页面
   const sortActive = () => S.sortKeys.size > 0 || S.th.digg > 0 || S.th.comment > 0 || S.th.collect > 0;
-  try { S.badge = (localStorage.DSP_BADGE ?? '1') === '1'; } catch {}
+  try {
+    S.badge = (localStorage.DSP_BADGE ?? '1') === '1';
+    S.asc = localStorage.DSP_ASC === '1';
+    S.enabled = (localStorage.DSP_ENABLED ?? '1') === '1';
+  } catch {}
+  const save = (k, v) => { try { localStorage[k] = v ? '1' : '0'; } catch {} };
 
   // ============ 数据接收与解析 ============
   // 容错解析：整体 JSON 失败时按大括号配对切出多个顶层 JSON（兼容流式响应）
@@ -194,6 +202,7 @@
     wasActive: false,
     apply() { return trap('search.apply', () => this.applyInner()); },
     applyInner() {
+      if (!S.enabled) return;  // 关闭态由 power.teardown() 负责还原，这里不做任何页面改动
       // 主页会话：按路径里的 sec_user_id 维护；换博主自动清零
       if (location.pathname.startsWith('/user/')) {
         const sec = location.pathname.split('/')[2] || '';
@@ -287,14 +296,16 @@
     if (keys.length === 1) {
       const k = keys[0];
       entries.sort((a, b) => (b.v[k] - a.v[k]) || (a.id < b.id ? -1 : 1));
-      return entries;
+    } else {
+      const rankSum = new Map();
+      for (const k of keys) {
+        [...entries].sort((a, b) => b.v[k] - a.v[k])
+          .forEach((e, i) => rankSum.set(e, (rankSum.get(e) || 0) + i));
+      }
+      entries.sort((a, b) => (rankSum.get(a) - rankSum.get(b)) || (a.id < b.id ? -1 : 1));
     }
-    const rankSum = new Map();
-    for (const k of keys) {
-      [...entries].sort((a, b) => b.v[k] - a.v[k])
-        .forEach((e, i) => rankSum.set(e, (rankSum.get(e) || 0) + i));
-    }
-    entries.sort((a, b) => (rankSum.get(a) - rankSum.get(b)) || (a.id < b.id ? -1 : 1));
+    // 倒序：单维和组合排序统一在这里翻转，无需各自处理
+    if (S.asc) entries.reverse();
     return entries;
   }
 
@@ -584,6 +595,49 @@
     toast(`已导出 ${videos.size} 条`);
   }
 
+  // ============ 总开关 ============
+  // 关闭 = 撤销插件对页面的全部改动，回到抖音原样；设置保留在内存，重开即恢复
+  const power = {
+    tornDown: false,
+    wasCommentSorted: false,
+
+    set(on) {
+      if (S.enabled === on) return;
+      S.enabled = on;
+      save('DSP_ENABLED', on);
+      if (on) this.restore(); else this.teardown();
+      ui.refresh();
+    },
+
+    teardown() {
+      trap('teardown', () => {
+        this.wasCommentSorted = S.commentSorted;
+        searchLoad.stop();
+        commentLoad.stop();
+        commentSort.disable();          // 清 .dsp-flexcol + 行 style.order
+        overlay.hide();                 // 移除 #dsp-grid，恢复原生容器
+        search.restoreProfile();        // 清主页 style.order / .dsp-hide / .dsp-flexwrap
+        removeBadges();
+        document.querySelectorAll('.dsp-rel').forEach((el) => el.classList.remove('dsp-rel'));
+        document.querySelectorAll('.dsp-hide').forEach((el) => el.classList.remove('dsp-hide'));
+        // 跨世界通知 inject-main 暂停主页收割（DOM 属性是两个世界都能看到的）
+        document.documentElement.dataset.dspOff = '1';
+        this.tornDown = true;
+        toast('插件已关闭，页面已还原');
+      });
+    },
+
+    restore() {
+      trap('restore', () => {
+        delete document.documentElement.dataset.dspOff;
+        this.tornDown = false;
+        if (this.wasCommentSorted && commentSort.rows().rows.length) commentSort.enable();
+        search.apply();                 // 排序维度一直留在 S 里，这里自动回来
+        toast('插件已开启');
+      });
+    },
+  };
+
   // ============ UI：底部胶囊工具条 ============
   function h(tag, cls, text) {
     const el = document.createElement(tag);
@@ -591,6 +645,62 @@
     if (text != null) el.textContent = text;
     return el;
   }
+
+  // SVG 图标工厂（内联构建，不引外部资源，CSP 安全）
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function svg(size, viewBox) {
+    const s = document.createElementNS(SVGNS, 'svg');
+    s.setAttribute('width', size);
+    s.setAttribute('height', size);
+    s.setAttribute('viewBox', viewBox || '0 0 24 24');
+    s.setAttribute('fill', 'none');
+    return s;
+  }
+  function svgPath(d, attrs) {
+    const p = document.createElementNS(SVGNS, 'path');
+    p.setAttribute('d', d);
+    for (const k in attrs) p.setAttribute(k, attrs[k]);
+    return p;
+  }
+  // 插件 Logo：三根降序柱条（红青色差）+ 顶部小红心，与 icons/ 里的扩展图标同源
+  function logoMark(size) {
+    const s = svg(size, '0 0 24 24');
+    const bars = [
+      { x: 4.5, y: 11, h: 9 },
+      { x: 10.2, y: 14, h: 6 },
+      { x: 15.9, y: 16.5, h: 3.5 },
+    ];
+    const mk = (dx, dy, fill, cls) => {
+      const g = document.createElementNS(SVGNS, 'g');
+      if (cls) g.setAttribute('class', cls);
+      g.setAttribute('fill', fill);
+      for (const b of bars) {
+        const r = document.createElementNS(SVGNS, 'rect');
+        r.setAttribute('x', b.x + dx); r.setAttribute('y', b.y + dy);
+        r.setAttribute('width', 3.6); r.setAttribute('height', b.h);
+        r.setAttribute('rx', 1.1);
+        g.appendChild(r);
+      }
+      return g;
+    };
+    s.appendChild(mk(-0.55, -0.55, '#25F4EE'));                    // 青色残影
+    s.appendChild(mk(0.55, 0.55, '#FE2C55'));                      // 红色残影
+    s.appendChild(mk(0, 0, '#FFFFFF', 'dsp-logo-bars'));           // 主体（可被 CSS 染色）
+    s.appendChild(svgPath('M6.3 7.4c0-1 .8-1.8 1.7-1.8.6 0 1.1.3 1.4.8.3-.5.8-.8 1.4-.8.9 0 1.7.8 1.7 1.8 0 1.6-3.1 3.4-3.1 3.4S6.3 9 6.3 7.4z',
+      { fill: '#FE2C55' }));                                       // 小红心
+    return s;
+  }
+  const iconPower = () => {
+    const s = svg(15);
+    s.appendChild(svgPath('M12 3.5v7', { stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    s.appendChild(svgPath('M17.5 6.2a7.5 7.5 0 1 1-11 0', { stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    return s;
+  };
+  const iconMinimize = () => {
+    const s = svg(15);
+    s.appendChild(svgPath('M5 12h14', { stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' }));
+    return s;
+  };
 
   let toastT = null;
   function toast(msg) {
@@ -610,15 +720,25 @@
     build() {
       if (document.getElementById('dsp-bar')) return;
 
-      // 收起状态的小圆点
-      this.dot = h('div', 'dsp-dot dsp-none', '抖+');
+      // 收起状态的悬浮图标（玻璃圆形 + 插件 Logo）
+      this.dot = h('div', 'dsp-none');
       this.dot.id = 'dsp-dot';
       this.dot.title = '展开抖音搜索增强';
-      this.dot.addEventListener('click', () => this.setCollapsed(false));
+      this.dot.appendChild(logoMark(22));
+      this.dot.addEventListener('click', () => {
+        // 关闭态下点图标 = 重新开启（否则展开一个全是禁用按钮的工具条没意义）
+        if (!S.enabled) { power.set(true); this.setCollapsed(false); return; }
+        this.setCollapsed(false);
+      });
 
       // 工具条
       this.bar = h('div', 'dsp-bar');
       this.bar.id = 'dsp-bar';
+
+      // 左端品牌小标，让展开态与收起态视觉连续
+      const brand = h('span', 'dsp-brand');
+      brand.appendChild(logoMark(16));
+      brand.title = '抖音搜索增强';
 
       // -- 搜索组 --
       const gSearch = h('div', 'dsp-group');
@@ -647,6 +767,19 @@
         this.chips.set(key, chip);
         gSearch.append(chip);
       }
+      // 倒序：翻转当前排序方向
+      const ascChip = h('button', 'dsp-chip', '↓ 倒序');
+      ascChip.title = '从少到多排列。找冷门、找长尾、看反面案例时有用';
+      ascChip.addEventListener('click', () => {
+        S.asc = !S.asc;
+        save('DSP_ASC', S.asc);
+        if (S.asc && !S.sortKeys.size) toast('先选一个排序维度，倒序才看得出效果');
+        this.refresh();
+        search.apply();
+      });
+      this.els.ascChip = ascChip;
+      gSearch.append(ascChip);
+
       const filterChip = h('button', 'dsp-chip', '筛选');
       filterChip.title = '设置阈值（只看 赞/评/藏 ≥ N 的结果）和角标开关';
       filterChip.addEventListener('click', (e) => { e.stopPropagation(); this.togglePop(); });
@@ -693,12 +826,18 @@
       this.els.cSort = cSort;
       this.els.cLoad = cLoad;
 
-      // -- 收起按钮 --
-      const min = h('button', 'dsp-chip dsp-min', '—');
-      min.title = '收起';
+      // -- 图标按钮组：电源 + 收起 --
+      const pw = h('button', 'dsp-icon-btn');
+      pw.appendChild(iconPower());
+      pw.addEventListener('click', () => power.set(!S.enabled));
+      this.els.power = pw;
+
+      const min = h('button', 'dsp-icon-btn');
+      min.title = '收起工具条（保留功能，只是隐藏）';
+      min.appendChild(iconMinimize());
       min.addEventListener('click', () => this.setCollapsed(true));
 
-      this.bar.append(gSearch, h('span', 'dsp-sep'), gComment, min);
+      this.bar.append(brand, gSearch, h('span', 'dsp-sep'), gComment, h('span', 'dsp-sep dsp-sep-end'), pw, min);
 
       // -- 筛选弹层 --
       this.pop = h('div', 'dsp-pop dsp-none');
@@ -757,7 +896,27 @@
         this.bar.classList.remove('dsp-none'); // 默认展开
       }
 
+      // 电源键与悬浮图标的状态
+      this.els.power.classList.toggle('dsp-off-state', !S.enabled);
+      this.els.power.title = S.enabled
+        ? '关闭插件：撤销所有页面改动，回到抖音原样（设置保留，随时可开）'
+        : '插件已关闭，点这里重新开启';
+      this.dot.classList.toggle('dsp-disabled', !S.enabled);
+      this.dot.classList.toggle('dsp-active', S.enabled && sortActive());
+      this.dot.title = S.enabled ? '展开抖音搜索增强' : '插件已关闭，点击重新开启';
+
+      // 关闭态：除电源键外全部禁用（视觉上仍在，让用户知道功能还在）
+      const dim = !S.enabled;
+      this.els.gSearch.classList.toggle('dsp-dim', dim);
+      this.els.gComment.classList.toggle('dsp-dim', dim);
+      if (dim) {
+        this.els.count.textContent = '已关闭';
+        return;
+      }
+
       for (const [k, chip] of this.chips) chip.classList.toggle('dsp-on', S.sortKeys.has(k));
+      this.els.ascChip.classList.toggle('dsp-on', S.asc);
+      this.els.ascChip.textContent = S.asc ? '↑ 倒序' : '↓ 倒序';
       const hasTh = S.th.digg > 0 || S.th.comment > 0 || S.th.collect > 0;
       this.els.filterChip.classList.toggle('dsp-on', hasTh);
       this.els.loadChip.textContent = searchLoad.running ? `停止(${videos.size})` : '加载更多';
@@ -785,7 +944,7 @@
       search.apply();
       ui.refresh();
     }), 1500);
-    log('DouyinSearchPlus v0.6.0 已就绪');
+    log('DouyinSearchPlus v0.7.0 已就绪');
   }
   init();
 })();

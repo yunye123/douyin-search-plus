@@ -83,6 +83,8 @@
 
   setInterval(() => {
     try {
+      // content 端关掉总开关时会设这个 DOM 属性（跨世界可见），此时停止收割
+      if (document.documentElement.dataset.dspOff === '1') return;
       if (!/^\/user\//.test(location.pathname)) return;
       const list = document.querySelector('[data-e2e="user-post-list"]');
       if (!list) return;
