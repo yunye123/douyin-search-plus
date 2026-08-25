@@ -201,10 +201,13 @@
       const parent = cards[0].el.parentElement;
       if (!parent) return;
 
-      // 黑马标记 + 角标
+      // 黑马标记 + 角标。单个角标出问题只跳过它，绝不拖垮排序主流程
       computeMarks();
-      if (S.badge) for (const c of cards) { if (c.v) addBadge(c.el, c.v); }
-      else removeBadges();
+      if (S.badge) {
+        for (const c of cards) {
+          if (c.v) { try { addBadge(c.el, c.v); } catch (e) { log('badge error', c.id, e); } }
+        }
+      } else removeBadges();
 
       const active = sortActive();
       if (!active) {
@@ -345,10 +348,12 @@
     if (!b) {
       b = document.createElement('div');
       b.className = 'dsp-badge';
-      b.append(document.createElement('div'), document.createElement('div'));
       root.classList.add('dsp-rel'); // 主页卡片可能是 static 定位，角标需要定位上下文
       root.appendChild(b);
     }
+    // 抖音的 React 重渲染可能清掉角标的子元素（实测踩过：一个空角标反复
+    // 崩掉整个 apply，排序全灭）——缺了就重建，绝不假设结构还在
+    while (b.children.length < 2) b.appendChild(document.createElement('div'));
     const marks = (v.hot ? '🔥' : '') + (v.gem ? '💎' : '');
     const l1 = `${marks}赞${fmt(v.digg)} 评${fmt(v.comment)} 藏${fmt(v.collect)}`;
     const l2 = `藏/赞${pct(v.cr)} 评/赞${pct(v.er)} 日增${fmt(v.dpd)}`;
