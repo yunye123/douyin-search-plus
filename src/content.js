@@ -81,6 +81,20 @@
     return out;
   }
 
+  // 告诉 MAIN world 的收割脚本"接收端已就位"，它在此之前不会开始收割。
+  // 必须紧跟在下面的监听注册之后设置，两者之间不能有 await/异步间隙。
+  const markReady = () => { try { document.documentElement.dataset.dspReady = '1'; } catch (e) {} };
+
+  // 数据与页面失步时请求整页重收（自愈）。节流，避免每轮 tick 都喊。
+  let lastRescan = 0;
+  function requestRescan(why) {
+    const now = Date.now();
+    if (now - lastRescan < 4000) return;
+    lastRescan = now;
+    log('请求重新收割：', why);
+    try { window.postMessage({ source: 'DSP_CTL', cmd: 'rescan' }, '*'); } catch (e) {}
+  }
+
   window.addEventListener('message', (ev) => {
     const d = ev.data;
     if (!d || d.source !== SIG || typeof d.text !== 'string') return;
@@ -90,6 +104,7 @@
       else if (d.kind === 'comments') docs.forEach((j) => intakeComments(d.url, j));
     });
   });
+  markReady();
 
   function intakeSearch(json, url) {
     // 会话签名 = 关键词 + 原生筛选参数（搜索页）或博主 ID（主页，sec_user_id）
@@ -244,6 +259,10 @@
       if (!cards.length) return;
       const parent = cards[0].el.parentElement;
       if (!parent) return;
+
+      // 自愈：页面上有卡片却一条数据都没有 → 说明收割结果没送达（竞态/会话清空），
+      // 请求整页重收。收割端每张卡只发一次，没有这一步就会永久缺数据。
+      if (!cards.some((c) => c.v)) requestRescan('主页有 ' + cards.length + ' 张卡但无数据');
 
       if (S.badge) {
         for (const c of cards) {
@@ -944,7 +963,7 @@
       search.apply();
       ui.refresh();
     }), 1500);
-    log('DouyinSearchPlus v0.7.0 已就绪');
+    log('DouyinSearchPlus v0.7.1 已就绪');
   }
   init();
 })();

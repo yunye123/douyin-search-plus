@@ -81,10 +81,29 @@
     return null;
   }
 
+  // content 端请求重新收割（数据与页面失步时的自愈通道）：清掉收割标记，
+  // 下个周期整页重收。任何原因导致的丢数据（消息发进真空、会话切换清空等）都能自己爬起来。
+  window.addEventListener('message', (ev) => {
+    const d = ev.data;
+    if (!d || d.source !== 'DSP_CTL' || d.cmd !== 'rescan') return;
+    try {
+      const list = document.querySelector('[data-e2e="user-post-list"]');
+      if (!list) return;
+      for (const a of list.querySelectorAll('a[href*="/video/"], a[href*="/note/"]')) {
+        const root = a.closest('li') || a.closest('span') || a;
+        delete root.__dspHv;
+      }
+    } catch (e) { /* 忽略 */ }
+  });
+
   setInterval(() => {
     try {
       // content 端关掉总开关时会设这个 DOM 属性（跨世界可见），此时停止收割
       if (document.documentElement.dataset.dspOff === '1') return;
+      // 等 content 就绪再收割：本脚本在 document_start 就跑，content 要到
+      // document_idle 才注册监听——早于它发出的消息会掉进真空，而卡片已被标记
+      // 为"已收割"，于是数据永久丢失（v0.7.1 修复的就是这个竞态）
+      if (document.documentElement.dataset.dspReady !== '1') return;
       if (!/^\/user\//.test(location.pathname)) return;
       const list = document.querySelector('[data-e2e="user-post-list"]');
       if (!list) return;
