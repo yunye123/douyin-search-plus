@@ -392,7 +392,10 @@
     if (!b) {
       b = document.createElement('div');
       b.className = 'dsp-badge';
-      root.classList.add('dsp-rel'); // 主页卡片可能是 static 定位，角标需要定位上下文
+      // 角标要定位上下文，但绝不能覆盖卡片自身的定位方式：
+      // 搜索页瀑布流卡片是 absolute（抖音靠它摆位），强加 relative 会让整个
+      // 瀑布流塌成对角线散落 —— 只有 static 的卡片（主页）才需要补 relative
+      if (getComputedStyle(root).position === 'static') root.classList.add('dsp-rel');
       root.appendChild(b);
     }
     // 抖音的 React 重渲染可能清掉角标的子元素（实测踩过：一个空角标反复
