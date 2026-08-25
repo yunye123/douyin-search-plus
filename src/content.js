@@ -102,12 +102,23 @@
       const collect = num(a.statistics.collect_count);
       const ct = num(a.create_time);
       const ageDays = ct > 0 ? Math.max(1, (Date.now() / 1000 - ct) / 86400) : 0;
+      let cover = '';
+      try {
+        cover = String(
+          (a.video && a.video.cover && a.video.cover.url_list && a.video.cover.url_list[0]) ||
+          (a.images && a.images[0] && a.images[0].url_list && a.images[0].url_list[0]) || ''
+        );
+      } catch (e) { /* 忽略 */ }
       videos.set(String(a.aweme_id), {
         digg, comment, collect,
         share: num(a.statistics.share_count),
         desc: String(a.desc || ''),
         author: String((a.author && a.author.nickname) || ''),
         ct,
+        cover,
+        dur: num(a.video && a.video.duration),          // 毫秒
+        note: !a.video && Array.isArray(a.images) && a.images.length > 0, // 图文
+
         // 派生指标：藏赞比（干货度）、评赞比（互动度）、日均点赞（增速）
         cr: digg > 0 ? collect / digg : 0,
         er: digg > 0 ? comment / digg : 0,
@@ -138,35 +149,26 @@
   // 注：主页首屏数据由 inject-main.js 在 MAIN world 从 React fiber 收割后
   // 经 search 通道发来（fiber 是页面脚本的 JS 属性，本隔离世界看不到）。
 
-  // ============ 搜索结果：瀑布流重排 ============
+  // ============ 搜索结果排序 ============
+  // 两种页面、两种策略（实测教训，2026-08）：
+  //   搜索页瀑布流有虚拟滚动：就地挪卡会和抖音的挂载/卸载机制打架（卡片整片消失）
+  //     → 排序激活时隐藏原生列表，用捕获的数据自渲染一个结果网格（overlay），
+  //       还能展示全部已捕获条目（不受 DOM 只挂载一屏的限制）
+  //   博主主页作品列表是普通文档流、无虚拟滚动 → 就地 CSS order 排
   const search = {
     timer: null,
     schedule() { clearTimeout(this.timer); this.timer = setTimeout(() => this.apply(), 400); },
 
-    // 两种页面布局，自动识别：
-    //   waterfall —— 搜索页瀑布流（绝对定位 transform 摆位，需自己重算坐标）
-    //   order     —— 博主主页作品/喜欢列表（正常文档流，CSS order 即可）
-    cards() {
-      const wf = [...document.querySelectorAll('[id^="waterfall_item_"]')];
-      if (wf.length) {
-        return {
-          mode: 'waterfall',
-          cards: wf.map((el, idx) => {
-            const id = el.id.slice('waterfall_item_'.length);
-            const t = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(el.style.transform || '');
-            return {
-              el, id, idx,
-              v: videos.get(id) || null,
-              x: t ? parseFloat(t[1]) : 0,
-              y: t ? parseFloat(t[2]) : 0,
-              h: parseFloat(el.style.height) || el.getBoundingClientRect().height || 300,
-            };
-          }),
-        };
-      }
-      // 主页模式：user-post-list 里带 /video/ 或 /note/ 链接的卡片
+    pageMode() {
+      if (document.querySelector('[id^="waterfall_item_"]')) return 'search';
+      if (document.querySelector('[data-e2e="user-post-list"] a[href*="/video/"], [data-e2e="user-post-list"] a[href*="/note/"]')) return 'profile';
+      return null;
+    },
+
+    // 主页卡片（就地排序用）
+    profileCards() {
       const list = document.querySelector('[data-e2e="user-post-list"]');
-      if (!list) return { mode: null, cards: [] };
+      if (!list) return [];
       const res = [];
       const seen = new Set();
       let idx = 0;
@@ -176,16 +178,23 @@
         const root = a.closest('li') || a.closest('span') || a;
         if (seen.has(root)) continue;
         seen.add(root);
-        res.push({ el: root, id: m[1], idx: idx++, v: videos.get(m[1]) || null, x: 0, y: 0, h: 0 });
+        res.push({ el: root, id: m[1], idx: idx++, v: videos.get(m[1]) || null });
       }
-      return { mode: 'order', cards: res };
+      return res;
+    },
+
+    // 阈值过滤 + 排序，作用在"全部已捕获数据"上（不依赖 DOM）
+    dataset() {
+      const all = [...videos.entries()].map(([id, v]) => ({ id, v }));
+      const shown = all.filter((e) => e.v.digg >= S.th.digg && e.v.comment >= S.th.comment && e.v.collect >= S.th.collect);
+      sortEntries(shown);
+      return { list: shown, total: all.length };
     },
 
     wasActive: false,
     apply() { return trap('search.apply', () => this.applyInner()); },
     applyInner() {
-      // 主页会话：按路径里的 sec_user_id 维护（格式和 API 端 'kw|fs|su' 对齐，
-      // 都是 '||<sec>'，两个来源不会互相触发误清空）；换博主自动清零
+      // 主页会话：按路径里的 sec_user_id 维护；换博主自动清零
       if (location.pathname.startsWith('/user/')) {
         const sec = location.pathname.split('/')[2] || '';
         if (sec) {
@@ -196,13 +205,37 @@
           }
         }
       }
-      const { mode, cards } = this.cards();
-      if (!mode || !cards.length) return;
+      const mode = this.pageMode();
+      if (!mode) { overlay.hide(); return; }
+      computeMarks();
+      if (mode === 'search') return this.applySearch();
+      return this.applyProfile();
+    },
+
+    // ---- 搜索页：overlay 策略 ----
+    applySearch() {
+      // 原生卡片角标（空闲浏览时可见）。单个角标出错只跳过，绝不拖垮主流程
+      if (S.badge) {
+        for (const el of document.querySelectorAll('[id^="waterfall_item_"]')) {
+          const v = videos.get(el.id.slice('waterfall_item_'.length));
+          if (v) { try { addBadge(el, v); } catch (e) { log('badge error', e); } }
+        }
+      } else removeBadges();
+
+      // 自动加载中要让原生列表能滚动翻页，先收起 overlay
+      if (!sortActive() || searchLoad.running) { overlay.hide(); ui.refresh(); return; }
+      const { list, total } = this.dataset();
+      overlay.show(list);
+      ui.refresh(list.length, total);
+    },
+
+    // ---- 主页：就地 CSS order 策略（无虚拟滚动，实测可靠） ----
+    applyProfile() {
+      const cards = this.profileCards();
+      if (!cards.length) return;
       const parent = cards[0].el.parentElement;
       if (!parent) return;
 
-      // 黑马标记 + 角标。单个角标出问题只跳过它，绝不拖垮排序主流程
-      computeMarks();
       if (S.badge) {
         for (const c of cards) {
           if (c.v) { try { addBadge(c.el, c.v); } catch (e) { log('badge error', c.id, e); } }
@@ -211,118 +244,129 @@
 
       const active = sortActive();
       if (!active) {
-        // 刚从排序状态退出 → 恢复一次原始布局
-        if (this.wasActive) { this.restore(mode, cards, parent); this.wasActive = false; }
-        // 空闲时持续刷新"原始位置"快照（此时布局归抖音管，是最新的）
-        if (mode === 'waterfall') {
-          parent.dataset.dspH = parent.style.height || '';
-          for (const c of cards) c.el.dataset.dspOrig = c.el.style.transform || 'none';
-        }
+        if (this.wasActive) { this.restoreProfile(cards, parent); this.wasActive = false; }
         ui.refresh();
         return;
       }
       this.wasActive = true;
-      // 排序中途新加载的卡片：第一次见到时记住抖音给它的原始位置
-      if (mode === 'waterfall') {
-        if (!('dspH' in parent.dataset)) parent.dataset.dspH = parent.style.height || '';
-        for (const c of cards) {
-          if (!('dspOrig' in c.el.dataset)) c.el.dataset.dspOrig = c.el.style.transform || 'none';
-        }
-      }
       if (cards.length < 2) return;
 
-      // 阈值过滤
+      // 阈值过滤（无数据的卡片不隐藏）
       const pass = (c) => !c.v || (c.v.digg >= S.th.digg && c.v.comment >= S.th.comment && c.v.collect >= S.th.collect);
       const shown = [], hidden = [];
       for (const c of cards) (pass(c) ? shown : hidden).push(c);
       for (const c of hidden) c.el.classList.add('dsp-hide');
       for (const c of shown) c.el.classList.remove('dsp-hide');
 
-      // 排序（无数据的卡片保持相对原位置，排在最后）
-      const keys = [...S.sortKeys];
-      const byPos = mode === 'waterfall'
-        ? (a, b) => (a.y - b.y) || (a.x - b.x)
-        : (a, b) => a.idx - b.idx;
-      let order;
-      if (keys.length === 1) {
-        const k = keys[0];
-        const withData = shown.filter((c) => c.v).sort((a, b) => (b.v[k] - a.v[k]) || (a.id < b.id ? -1 : 1));
-        order = withData.concat(shown.filter((c) => !c.v).sort(byPos));
-      } else if (keys.length > 1) {
-        // 组合排序：名次和。每个维度各排一次名，名次相加，总名次小的排前面。
-        // 用名次而不是数值相加，避免点赞（十万级）淹没评论（百级）。
-        const withData = shown.filter((c) => c.v);
-        const rankSum = new Map();
-        for (const k of keys) {
-          [...withData].sort((a, b) => b.v[k] - a.v[k])
-            .forEach((c, i) => rankSum.set(c, (rankSum.get(c) || 0) + i));
-        }
-        withData.sort((a, b) => (rankSum.get(a) - rankSum.get(b)) || (a.id < b.id ? -1 : 1));
-        order = withData.concat(shown.filter((c) => !c.v).sort(byPos));
-      } else {
-        order = [...shown].sort(byPos);
-      }
+      // 排序（无数据的卡片保持相对原位置，排最后）
+      const entries = shown.filter((c) => c.v).map((c) => ({ id: c.id, v: c.v, c }));
+      sortEntries(entries);
+      const order = entries.map((e) => e.c).concat(shown.filter((c) => !c.v).sort((a, b) => a.idx - b.idx));
 
-      if (mode === 'order') {
-        // 主页模式：父容器保证是 flex/grid，然后用 CSS order 排
-        if (!/flex|grid/.test(getComputedStyle(parent).display)) parent.classList.add('dsp-flexwrap');
-        order.forEach((c, i) => { c.el.style.order = String(i + 1); });
-        ui.refresh(shown.length, cards.length);
-        return;
-      }
-
-      // 瀑布流模式：从现有几何信息反推参数（列 x 坐标、顶部 y、纵向间距）
-      const xs = [...new Set(cards.map((c) => Math.round(c.x)))].sort((a, b) => a - b);
-      if (xs.length < 2) return; // 结构异常，不动
-      const topY = Math.min(...cards.map((c) => c.y));
-      const gaps = [];
-      const byCol = new Map();
-      for (const c of [...cards].sort(byPos)) {
-        const cx = Math.round(c.x);
-        if (byCol.has(cx)) {
-          const prev = byCol.get(cx);
-          const g = c.y - (prev.y + prev.h);
-          if (g > 0 && g < 80) gaps.push(g);
-        }
-        byCol.set(cx, c);
-      }
-      gaps.sort((a, b) => a - b);
-      const gapY = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 24;
-
-      // 按排序结果重新摆瀑布流：每张卡放进当前最矮的列
-      const colH = xs.map(() => topY);
-      for (const c of order) {
-        let ci = 0;
-        for (let i = 1; i < colH.length; i++) if (colH[i] < colH[ci]) ci = i;
-        c.el.style.transform = `translate(${xs[ci]}px, ${colH[ci]}px)`;
-        c.el.style.visibility = 'visible';
-        colH[ci] += c.h + gapY;
-      }
-      parent.style.height = Math.max(...colH) + 40 + 'px';
+      if (!/flex|grid/.test(getComputedStyle(parent).display)) parent.classList.add('dsp-flexwrap');
+      order.forEach((c, i) => { c.el.style.order = String(i + 1); });
       ui.refresh(shown.length, cards.length);
     },
 
-    restore(mode, cards, parent) {
-      if (!cards) { const r = this.cards(); mode = r.mode; cards = r.cards; }
+    restoreProfile(cards, parent) {
+      cards = cards || this.profileCards();
       if (!cards.length) return;
       parent = parent || cards[0].el.parentElement;
       for (const c of cards) {
         c.el.classList.remove('dsp-hide');
-        if (mode === 'waterfall') {
-          if (c.el.dataset.dspOrig) {
-            c.el.style.transform = c.el.dataset.dspOrig === 'none' ? '' : c.el.dataset.dspOrig;
-          }
-        } else {
-          c.el.style.order = '';
-        }
+        c.el.style.order = '';
       }
-      if (mode === 'waterfall') {
-        if (parent && parent.dataset.dspH !== undefined) parent.style.height = parent.dataset.dspH;
-      } else if (parent) {
-        parent.classList.remove('dsp-flexwrap');
-      }
+      if (parent) parent.classList.remove('dsp-flexwrap');
     },
   };
+
+  // 排序核心：单选直排；多选按"名次和"（用名次相加，防止点赞的十万量级淹没评论的百级）
+  function sortEntries(entries) {
+    const keys = [...S.sortKeys];
+    if (!keys.length || entries.length < 2) return entries;
+    if (keys.length === 1) {
+      const k = keys[0];
+      entries.sort((a, b) => (b.v[k] - a.v[k]) || (a.id < b.id ? -1 : 1));
+      return entries;
+    }
+    const rankSum = new Map();
+    for (const k of keys) {
+      [...entries].sort((a, b) => b.v[k] - a.v[k])
+        .forEach((e, i) => rankSum.set(e, (rankSum.get(e) || 0) + i));
+    }
+    entries.sort((a, b) => (rankSum.get(a) - rankSum.get(b)) || (a.id < b.id ? -1 : 1));
+    return entries;
+  }
+
+  // ============ 搜索页排序结果网格（overlay） ============
+  const overlay = {
+    grid: null,
+    lastKey: '',
+    container() {
+      const card = document.querySelector('[id^="waterfall_item_"]');
+      return card ? card.parentElement : null;
+    },
+    show(list) {
+      const cont = this.container();
+      if (!cont || !cont.parentElement) return;
+      if (!this.grid) { this.grid = document.createElement('div'); this.grid.id = 'dsp-grid'; }
+      if (this.grid.parentElement !== cont.parentElement) cont.parentElement.insertBefore(this.grid, cont);
+      cont.classList.add('dsp-none');
+      // 指纹没变就不重渲染，避免闪烁
+      const key = [...S.sortKeys].join('+') + '|' + list.map((e) => e.id).join(',');
+      if (key === this.lastKey) return;
+      this.lastKey = key;
+      this.grid.textContent = '';
+      const frag = document.createDocumentFragment();
+      for (const e of list) frag.appendChild(this.card(e.id, e.v));
+      this.grid.appendChild(frag);
+      log('overlay 渲染', list.length, '条');
+    },
+    hide() {
+      if (this.grid && this.grid.parentElement) this.grid.remove();
+      const cont = this.container();
+      if (cont) cont.classList.remove('dsp-none');
+      this.lastKey = '';
+    },
+    card(id, v) {
+      const a = document.createElement('a');
+      a.className = 'dsp-card';
+      a.href = 'https://www.douyin.com/' + (v.note ? 'note/' : 'video/') + id;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      const cov = document.createElement('div');
+      cov.className = 'dsp-card-cover';
+      if (v.cover) {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = v.cover;
+        cov.appendChild(img);
+      }
+      if (v.dur > 0) {
+        const d = document.createElement('span');
+        d.className = 'dsp-card-dur';
+        const s = Math.round(v.dur / 1000);
+        d.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+        cov.appendChild(d);
+      }
+      const stats = document.createElement('div');
+      stats.className = 'dsp-card-stats';
+      stats.textContent = `${(v.hot ? '🔥' : '') + (v.gem ? '💎' : '')}赞${fmt(v.digg)} 评${fmt(v.comment)} 藏${fmt(v.collect)} 转${fmt(v.share)}`;
+      const rates = document.createElement('div');
+      rates.className = 'dsp-card-rates';
+      rates.textContent = `藏/赞${pct(v.cr)} · 评/赞${pct(v.er)} · 日增${fmt(v.dpd)}`;
+      const title = document.createElement('div');
+      title.className = 'dsp-card-title';
+      title.textContent = v.desc || '(无标题)';
+      const meta = document.createElement('div');
+      meta.className = 'dsp-card-meta';
+      const date = v.ct ? new Date(v.ct * 1000) : null;
+      meta.textContent = (v.author ? '@' + v.author : '') + (date ? ' · ' + (date.getMonth() + 1) + '月' + date.getDate() + '日' : '');
+      a.append(cov, stats, rates, title, meta);
+      return a;
+    },
+  };
+
 
   const pct = (r) => (r * 100).toFixed(1) + '%';
 
@@ -479,8 +523,8 @@
     scroll: () => {
       window.scrollTo(0, document.documentElement.scrollHeight);
       window.scrollBy(0, 10000); // 双保险，两种滚动模型都试
-      const { cards } = search.cards();
-      const card = cards.length ? cards[cards.length - 1].el : null;
+      const wf = document.querySelectorAll('[id^="waterfall_item_"]');
+      const card = wf.length ? wf[wf.length - 1] : search.profileCards().map((c) => c.el).pop() || null;
       if (card) card.scrollIntoView({ block: 'end' });
       let sc = card && card.parentElement;
       while (sc && sc !== document.body) {
@@ -738,7 +782,7 @@
       search.apply();
       ui.refresh();
     }), 1500);
-    log('DouyinSearchPlus v0.5.3 已就绪');
+    log('DouyinSearchPlus v0.6.0 已就绪');
   }
   init();
 })();

@@ -159,6 +159,76 @@
   white-space: nowrap;
 }
 
+/* ============ 搜索页排序结果网格（overlay） ============ */
+#dsp-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 14px;
+  padding: 16px 12px 90px;
+}
+.dsp-card {
+  width: 220px;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  border-radius: 10px;
+  transition: transform 0.15s;
+}
+.dsp-card:hover { transform: translateY(-3px); }
+.dsp-card-cover {
+  position: relative;
+  width: 220px;
+  height: 292px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.dsp-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.dsp-card-dur {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.dsp-card-stats {
+  margin-top: 7px;
+  font: 600 12px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #ececf1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.dsp-card-rates {
+  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
+  color: #8a8b96;
+  white-space: nowrap;
+}
+.dsp-card-title {
+  margin-top: 4px;
+  font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #c9cad3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dsp-card-meta {
+  margin-top: 3px;
+  font: 11px/1.5 -apple-system, "Microsoft YaHei", sans-serif;
+  color: #8a8b96;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ============ 提示 ============ */
 .dsp-toast {
   position: fixed;
