@@ -17,6 +17,16 @@
   const SIG = 'DSP_DATA';
   const DEBUG = () => { try { return localStorage.DSP_DEBUG === '1'; } catch { return false; } };
   const log = (...a) => { if (DEBUG()) console.log('[DSP]', ...a); };
+  // 异常上报到 DOM 属性（隔离世界的报错在页面控制台看不到，写到 DOM 上跨世界可读）
+  function trap(tag, fn) {
+    try { return fn(); } catch (e) {
+      try {
+        document.documentElement.dataset.dspErr =
+          tag + ' @' + new Date().toTimeString().slice(0, 8) + ': ' + String((e && (e.stack || e.message)) || e).slice(0, 600);
+      } catch (e2) { /* 忽略 */ }
+      log('trap', tag, e);
+    }
+  }
 
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
   const fmt = (n) => (n >= 10000 ? (n / 10000).toFixed(1).replace(/\.0$/, '') + '万' : String(n));
@@ -66,11 +76,11 @@
   window.addEventListener('message', (ev) => {
     const d = ev.data;
     if (!d || d.source !== SIG || typeof d.text !== 'string') return;
-    try {
+    trap('intake', () => {
       const docs = parseJsonChunks(d.text);
       if (d.kind === 'search') docs.forEach((j) => intakeSearch(j, d.url));
       else if (d.kind === 'comments') docs.forEach((j) => intakeComments(d.url, j));
-    } catch (e) { log('intake error', e); }
+    });
   });
 
   function intakeSearch(json, url) {
@@ -172,7 +182,8 @@
     },
 
     wasActive: false,
-    apply() {
+    apply() { return trap('search.apply', () => this.applyInner()); },
+    applyInner() {
       // 主页会话：按路径里的 sec_user_id 维护（格式和 API 端 'kw|fs|su' 对齐，
       // 都是 '||<sec>'，两个来源不会互相触发误清空）；换博主自动清零
       if (location.pathname.startsWith('/user/')) {
@@ -716,14 +727,13 @@
     ui.build();
     // 定时兜底：React 重渲染会冲掉我们的坐标/角标，这里定期补上，
     // 同时处理 SPA 导航（工具条被清掉就重建，页面类型变了就刷新显隐）
-    setInterval(() => {
+    setInterval(() => trap('tick', () => {
       if (!document.getElementById('dsp-bar')) ui.build();
-      // 无条件跑：主页模式需要持续从卡片收割数据（首屏是服务端直出，不走接口），
-      // 空闲分支本身很轻
+      // 无条件跑：空闲分支本身很轻
       search.apply();
       ui.refresh();
-    }, 1500);
-    log('DouyinSearchPlus v0.5.2 已就绪');
+    }), 1500);
+    log('DouyinSearchPlus v0.5.3 已就绪');
   }
   init();
 })();
