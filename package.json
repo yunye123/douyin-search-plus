@@ -1,0 +1,16 @@
+{
+  "name": "douyin-search-plus",
+  "version": "1.0.0",
+  "private": true,
+  "description": "抖音网页版选题数据增强插件（Chrome MV3）。插件本身零依赖、零构建；这里的依赖只用于开发测试。",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/unit/*.test.js\"",
+    "e2e": "playwright test",
+    "shots": "node scripts/screenshots.js",
+    "check": "npm test && npm run e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1"
+  }
+}

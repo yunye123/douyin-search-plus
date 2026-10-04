@@ -11,3 +11,7 @@ desktop.ini
 *.zip
 *.crx
 *.pem
+
+# 开发依赖与测试产物
+node_modules/
+test/.results/

@@ -1,26 +1,35 @@
 {
   "manifest_version": 3,
   "name": "抖音搜索增强 DouyinSearchPlus",
-  "version": "0.7.1",
-  "description": "抖音网页版：搜索结果按点赞/评论/收藏/分享排序与阈值筛选，评论区按点赞排序，自动加载更多。",
+  "version": "1.0.0",
+  "description": "抖音网页版选题助手（非官方）：按收藏率挑选题、候选篮一键生成入库包、评论区按赞或回复排序。免登录，数据只在本机。",
+  "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "permissions": ["storage"],
   "content_scripts": [
     {
       "matches": ["https://www.douyin.com/*"],
-      "js": ["src/inject-main.js"],
+      "js": ["src/page/bridge.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
       "matches": ["https://www.douyin.com/*"],
-      "js": ["src/content.js"],
-      "css": ["src/panel.css"],
-      "run_at": "document_idle"
+      "js": [
+        "src/content/util.js",
+        "src/content/metrics.js",
+        "src/content/store.js",
+        "src/content/export.js",
+        "src/content/adapters.js",
+        "src/content/loader.js",
+        "src/content/app.js"
+      ],
+      "run_at": "document_start"
     }
   ]
 }
