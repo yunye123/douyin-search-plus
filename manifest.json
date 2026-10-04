@@ -10,16 +10,24 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["storage"],
+  "permissions": [
+    "storage"
+  ],
   "content_scripts": [
     {
-      "matches": ["https://www.douyin.com/*"],
-      "js": ["src/page/bridge.js"],
+      "matches": [
+        "https://www.douyin.com/*"
+      ],
+      "js": [
+        "src/page/bridge.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["https://www.douyin.com/*"],
+      "matches": [
+        "https://www.douyin.com/*"
+      ],
       "js": [
         "src/content/util.js",
         "src/content/metrics.js",
@@ -27,6 +35,10 @@
         "src/content/export.js",
         "src/content/adapters.js",
         "src/content/loader.js",
+        "src/content/presenter.js",
+        "src/content/comments.js",
+        "src/content/inplace.js",
+        "src/content/ui-kit.js",
         "src/content/app.js"
       ],
       "run_at": "document_start"

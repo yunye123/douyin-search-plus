@@ -23,9 +23,16 @@
       meta.bridgeSeen = true;
       trap('intake', () => {
         if (!store.S.settings.enabled) return;
+        // SPA 导航后，抖音的新数据可能比路由轮询先到：收数据前先同步核对一次地址
+        checkRoute();
         if (d.type === 'videos' && Array.isArray(d.items)) {
           if (d.ctx && d.ctx.meta && d.ctx.endpoint) { meta[d.ctx.endpoint] = d.ctx.meta; meta.lastAt = Date.now(); }
-          store.intakeVideos(d.ctx, d.items.filter(validVideo));
+          const items = d.items.filter(validVideo);
+          if (!store.intakeVideos(d.ctx, items) && items.length) {
+            // 没收下（可能是还没切过去的新页面的数据）：暂存，路由变化后重放
+            pending.push({ ctx: d.ctx, items, at: Date.now() });
+            if (pending.length > 12) pending.shift();
+          }
         } else if (d.type === 'comments' && Array.isArray(d.items)) {
           if (d.meta) meta.comments = d.meta;
           store.intakeComments({ awemeId: d.awemeId, total: d.total, items: d.items.filter(validComment) });
@@ -51,10 +58,15 @@
 
   // ---------- 路由（SPA 导航） ----------
   let lastHref = '';
+  const pending = []; // 暂存的未收批次（最多 12 批、30 秒内有效）
   function checkRoute() {
     if (location.href === lastHref) return;
     lastHref = location.href;
     store.setRoute(store.routeOf(location));
+    // 重放：之前因为"还不是当前页面"而没收的数据，现在可能属于当前页面了
+    const now = Date.now();
+    const replay = pending.splice(0).filter((b) => now - b.at < 30000);
+    for (const b of replay) store.intakeVideos(b.ctx, b.items);
   }
 
   // ---------- 测试快照 ----------
@@ -75,6 +87,33 @@
     };
   }
   DSP.snapshot = snapshot;
+
+  // ---------- 扩展弹窗询问当前页状态 ----------
+  // 插件在扩展管理页被重载后，旧页面里的内容脚本与扩展断开（chrome.runtime.id 变成 undefined），
+  // 界面据此提示"插件已更新，请刷新页面"，并停止一切加载
+  DSP.alive = () => { try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; } };
+  function status() {
+    const S = store.S;
+    const v = store.viewOf();
+    const M = DSP.metrics;
+    const keys = S.view.sortKeys;
+    return {
+      type: S.route.type,
+      label: S.sessionLabel,
+      count: S.videos.size,
+      strongNeed: S.videos.size ? v.summary.strongNeed : null,
+      sortLabel: keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : '',
+      comments: S.comments.map.size,
+      candidates: S.candidates.size,
+      health: DSP.ui && DSP.ui.health ? DSP.ui.health() : 'ok',
+    };
+  }
+  try {
+    chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+      if (msg && msg.type === 'dsp:status') { reply(trap('status', status) || {}); return false; }
+      return false;
+    });
+  } catch (e) { /* 忽略 */ }
 
   // ---------- 启动 ----------
   hello();

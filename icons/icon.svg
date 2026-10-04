@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2A2B3A"/><stop offset="1" stop-color="#14151E"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE27A"/><stop offset="1" stop-color="#FFB020"/></linearGradient>
+  <linearGradient id="bar" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E4E5EE"/></linearGradient>
+</defs>
+<rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+<rect x="4.5" y="4.5" width="119" height="119" rx="27.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.08"/>
+<rect x="22.8" y="72" width="20" height="34" rx="5" fill="#25F4EE" opacity="0.95"/><rect x="50.8" y="56" width="20" height="50" rx="5" fill="#25F4EE" opacity="0.95"/><rect x="78.8" y="40" width="20" height="66" rx="5" fill="#25F4EE" opacity="0.95"/><rect x="29.2" y="72" width="20" height="34" rx="5" fill="#FE2C55" opacity="0.95"/><rect x="57.2" y="56" width="20" height="50" rx="5" fill="#FE2C55" opacity="0.95"/><rect x="85.2" y="40" width="20" height="66" rx="5" fill="#FE2C55" opacity="0.95"/>
+<rect x="26" y="72" width="20" height="34" rx="5" fill="url(#bar)"/><rect x="54" y="56" width="20" height="50" rx="5" fill="url(#bar)"/><rect x="82" y="40" width="20" height="66" rx="5" fill="url(#bar)"/>
+<polygon points="92.00,6.00 96.06,15.42 106.27,16.36 98.56,23.13 100.82,33.14 92.00,27.90 83.18,33.14 85.44,23.13 77.73,16.36 87.94,15.42" fill="url(#gold)" stroke-linejoin="round"/>
+</svg>
