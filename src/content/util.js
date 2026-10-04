@@ -18,12 +18,11 @@
     const s = x >= 1000 ? String(Math.round(x)) : x.toFixed(1);
     return s.replace(/\.0$/, '');
   }
-  // 比率：<10% 保留 1 位小数，≥10% 取整（112%、41%、2.5%）
+  // 比率一律保留 1 位小数（111.7%、39.6%、2.5%）：取整会把 39.6% 显示成 40%，看起来像落错了分档
   function fmtPct(r) {
     if (r == null) return '—';
     if (!Number.isFinite(r) || r <= 0) return '0%';
-    const p = r * 100;
-    return (p < 10 ? p.toFixed(1).replace(/\.0$/, '') : String(Math.round(p))) + '%';
+    return (Math.round(r * 1000) / 10).toFixed(1) + '%';
   }
   function fmtAgo(ts, now) {
     if (!ts) return '';

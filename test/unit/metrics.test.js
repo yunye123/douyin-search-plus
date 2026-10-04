@@ -114,9 +114,10 @@ test('格式化', () => {
   assert.equal(U.fmtNum(100000), '10万');
   assert.equal(U.fmtNum(12345678), '1235万');
   assert.equal(U.fmtNum(123456789), '1.2亿');
-  assert.equal(U.fmtPct(1.117), '112%');
+  assert.equal(U.fmtPct(1.117), '111.7%');
   assert.equal(U.fmtPct(0.017), '1.7%');
-  assert.equal(U.fmtPct(0.05), '5%');
+  assert.equal(U.fmtPct(0.396), '39.6%');
+  assert.equal(U.fmtPct(0.05), '5.0%');
   assert.equal(U.fmtPct(0), '0%');
   assert.equal(U.fmtDuration(127199), '02:07');
   assert.equal(U.fmtDuration(3723000), '1:02:03');
