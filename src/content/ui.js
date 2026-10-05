@@ -202,6 +202,20 @@
     if (Math.abs(delta) < 4) return;
     A.scrollByIn(ui.listEl, delta, kit.reducedMotion() ? 'auto' : 'smooth');
   }
+  // 切到搜索结果的"视频"标签：点抖音自己的标签（和用户手点一样）；找不到就改地址
+  function switchToVideoTab() {
+    const tab = [...document.querySelectorAll('span, div, a')].find((el) => {
+      if (el.children.length || (el.textContent || '').trim() !== '视频') return false;
+      const bar = el.parentElement && el.parentElement.parentElement;
+      const t = bar ? bar.textContent || '' : '';
+      return t.indexOf('综合') >= 0 && t.indexOf('用户') >= 0 && el.getClientRects().length > 0;
+    });
+    if (tab) { tab.click(); return; }
+    const u = new URL(location.href);
+    u.searchParams.set('type', 'video');
+    location.assign(u.toString());
+  }
+
   // 评论区：把视觉上的第 1 条滚到评论工具条下方（评论在面板里滚动时滚面板，在页面里滚动时滚页面）
   function scrollToCommentTop() {
     const list = A.commentList();
@@ -305,9 +319,12 @@
     const tiers = P.tierCounts(base);
     // 给扩展弹窗用的计数（和工具栏同一口径），带上会话签名，换关键词后不会读到旧数
     ui.counts = { session: S.session, count: ids ? base.length : S.videos.size, strongNeed: tiers.high };
-    const sorted = S.view.sortKeys.length > 0;
-    const active = S.view.active;
-    const lens = P.matchLens(S.view);
+    // 能不能原地重排：抖音"综合"标签是绝对定位的瀑布流，插件排不动。排不动时不显示名次、不变暗，
+    // 免得卡片上写着第 3 名、位置却没变；排序和达标线引导用户切到"视频"标签
+    const canSort = !located || !cards.length || IP.supports(located.el, cards);
+    const sorted = canSort && S.view.sortKeys.length > 0;
+    const active = canSort && S.view.active;
+    const lens = canSort ? P.matchLens(S.view) : null;
     // 账号 Top10：第 11 名以后照样排序，但名次变灰、卡片变暗，不和前 10 混在一起
     const topN = lens && lens.key === 'top10' ? 10 : 0;
     const orderIds = view.sorted.map((x) => x.v.id);
@@ -392,7 +409,7 @@
     if (ui.bar) {
       const passCount = active ? Math.min(view.sorted.length, topN || Infinity) : base.length;
       // 选题看法自带的条件（例如真需求 = 收藏率≥80% + 只看视频）不算"用户设的达标线"，按钮只数额外加的
-      const filterCount = Math.max(0, M.activeFilterCount(S.view.filter) - (lens && lens.filter ? M.activeFilterCount(lens.filter) : 0));
+      const filterCount = !canSort ? 0 : Math.max(0, M.activeFilterCount(S.view.filter) - (lens && lens.filter ? M.activeFilterCount(lens.filter) : 0));
       const vm = {
         type, health, blocked, count: ids ? base.length : S.videos.size,
         width: dockWidth(),
@@ -409,14 +426,14 @@
       const excludedHigh = active ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
       vm.status = P.statusLine({
         health, blocked, count: vm.count, total: works, strongNeed: tiers.high, sorted: active,
-        shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh,
+        shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh, noSort: !canSort,
       });
       // 看法写在"排序"按钮上、达标线条件在按钮角标和弹层里，状态句不重复；悬停状态句看全文和条件
       vm.statusTitle = vm.status.map((s) => s.t).filter(Boolean).join(' · ') +
         (vm.filterCount ? '\n达标线：' + P.filterText(S.view.filter) : '') + (lens ? '\n看法：' + lens.label + '（' + lens.desc + '）' : '');
       if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果过达标线', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
       T.renderBar(ui.bar, vm);
-      ui.vm = Object.assign(vm, { passCount, view, base, lens, topN });
+      ui.vm = Object.assign(vm, { passCount, view, base, lens, topN, canSort, active });
     }
     if (health !== ui.lastHealth) { ui.lastHealth = health; }
     return { health, docked, count: S.videos.size };
@@ -631,7 +648,7 @@
     clearFilter: () => store.setFilter({}),
     updateFilterHead: (panel) => { update(); T.updateFilterHead(panel, ui.vm || { passCount: 0, count: 0 }); },
     exportView: (fmt) => {
-      let list = ui.vm ? (S.view.active ? ui.vm.view.sorted.map((x) => x.v) : ui.vm.base) : [];
+      let list = ui.vm ? (ui.vm.active ? ui.vm.view.sorted.map((x) => x.v) : ui.vm.base) : [];
       if (ui.vm && ui.vm.topN) list = list.slice(0, ui.vm.topN); // 账号 Top10 只导出前 10（序号即名次）
       if (!list.length) return announce('还没有可导出的结果', 'warn');
       if (fmt === 'csv') { E.download(E.safeName('抖音_' + (S.sessionLabel || '结果')) + '_' + U.fmtDate(Date.now() / 1000) + '.csv', E.toCsv(list)); announce('已下载 ' + list.length + ' 条'); }
@@ -690,6 +707,9 @@
 
   function openPanel(kind, anchor) {
     if (ui.pop && ui.pop.kind === kind && isOpen(ui.pop.panel)) { closePop(true); ui.pop = null; return; }
+    if ((kind === 'sort' || kind === 'filter') && ui.vm && ui.vm.canSort === false) {
+      return announce('「综合」标签是瀑布流，插件没法重新排列。切到「视频」标签就能按收藏率排序、设达标线', '', { label: '切到视频', run: switchToVideoTab });
+    }
     C.hideDetail(true);
     const vm = popVm();
     let panel, opts = { layer: ui.layer, onClose: () => { if (ui.pop && ui.pop.panel === panel) ui.pop = null; } };
@@ -844,7 +864,8 @@
   // 工具栏下方的一条横条（在页面流里，不浮在卡片和弹层上）；点"知道了"或第一次用排序看法后不再出现
   function renderGuide(health) {
     // 引导放在单独的、不吸顶的宿主里（工具栏下方、列表上方），往下滚时跟着页面走，不长期占顶部空间
-    const want = !S.settings.guideDone && health === 'ok' && ui.bar && ui.listEl && ui.listEl.isConnected;
+    // 引导讲的是"排序 → 真需求"，排不动的页面（综合标签）先不出
+    const want = !S.settings.guideDone && health === 'ok' && ui.bar && ui.listEl && ui.listEl.isConnected && !(ui.vm && ui.vm.canSort === false);
     if (!want) {
       if (ui.guideHost) { ui.guideHost.el.remove(); ui.guideHost = null; }
       ui.guide = null;

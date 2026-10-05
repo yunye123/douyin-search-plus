@@ -132,11 +132,26 @@ const SEARCH_CSS = `
 const SEARCH_JS = `
 ${COMMON_JS}
 const S = window.__SIM__;
-S.kw = decodeURIComponent(location.pathname.split('/')[2] || '');
+const SEGS = location.pathname.split('/');
+S.kw = decodeURIComponent(SEGS[SEGS.indexOf('search') + 1] || '');
 S.filter = '';
+// ?type=general："综合"标签——绝对定位的瀑布流（#waterFallScrollContainer > div#waterfall_item_<id>），卡片没有链接，
+// fiber 在 return 一层的 memoizedProps.item 上；"视频"标签的空列表还留在页面上（和真实页面一样）
+const GENERAL = /[?&]type=general/.test(location.search);
 S.offset = 0; S.hasMore = 1; S.loading = false; S.total = 0;
 const wallAt = Number((/[?&]loginwall=(\\d+)/.exec(location.search) || [])[1] || 0);
 const ul = document.querySelector('#search-result-container ul[data-e2e="scroll-list"]');
+let wf = null;
+if (GENERAL) {
+  wf = document.createElement('div');
+  wf.id = 'waterFallScrollContainer';
+  wf.style.cssText = 'position:relative;width:1140px';
+  ul.parentElement.appendChild(wf);
+}
+document.querySelectorAll('.sim-tabs > span[data-type]').forEach((sp) => {
+  sp.classList.toggle('on', sp.dataset.type === (GENERAL ? 'general' : 'video'));
+  sp.addEventListener('click', () => { const u = new URL(location.href); u.searchParams.set('type', sp.dataset.type); location.assign(u.toString()); });
+});
 function cardHTML(f) {
   const a = f.awemeInfo, st = a.stats;
   const cover = a.video ? a.video.cover : (a.images && a.images[0] && a.images[0].urlList[0]);
@@ -145,7 +160,20 @@ function cardHTML(f) {
     '<span class="sim-like">♡ ' + fmt(st.diggCount) + '</span>' + (a.video ? '<span class="sim-dur">' + dur(a.video.duration) + '</span>' : '') + '</div>' +
     '<div class="sim-info"><div class="sim-title">' + escH(a.desc) + '</div><div class="sim-meta"><span>@ ' + escH(a.authorInfo.nickname) + '</span><span>' + ago(a.createTime) + '</span></div></div></a></div>';
 }
+function addWaterfall(f) {
+  const i = S.total;
+  const el = document.createElement('div');
+  el.id = 'waterfall_item_' + f.awemeInfo.awemeId;
+  el.className = 'AMqhOzPC';
+  el.style.cssText = 'position:absolute;width:269px;height:303px;left:' + (i % 4) * 290 + 'px;top:' + Math.floor(i / 4) * 324 + 'px';
+  el.innerHTML = cardHTML(f).replace(/<a href="[^"]*">/, '<div class="sim-a">').replace(/<\\/a><\\/div>$/, '</div></div>');
+  if (!NOFIBER) el[FK] = { tag: 5, memoizedProps: { className: el.className }, return: { tag: 0, memoizedProps: { item: f } } };
+  wf.appendChild(el);
+  wf.style.height = (Math.floor(i / 4) + 1) * 324 + 'px';
+  S.total++;
+}
 function addItem(f) {
+  if (wf) return addWaterfall(f);
   const li = document.createElement('li');
   li.className = 'SwZLHMKk';
   li.innerHTML = cardHTML(f);
@@ -158,7 +186,7 @@ async function loadMore() {
   if (S.loading || !S.hasMore) return;
   if (wallAt && S.total >= wallAt) { if (!document.querySelector('.sim-wall')) { const w = document.createElement('div'); w.className = 'sim-wall'; w.innerHTML = '<div>登录后即可搜索更多精彩视频</div>'; document.body.appendChild(w); } return; }
   S.loading = true;
-  const url = '/aweme/v1/web/search/item/?device_platform=webapp&aid=6383&search_channel=aweme_video_web&keyword=' + encodeURIComponent(S.kw) +
+  const url = (GENERAL ? '/aweme/v1/web/general/search/single/?device_platform=webapp&aid=6383&keyword=' : '/aweme/v1/web/search/item/?device_platform=webapp&aid=6383&search_channel=aweme_video_web&keyword=') + encodeURIComponent(S.kw) +
     '&offset=' + S.offset + '&count=' + (S.offset ? 10 : 20) + (S.filter ? '&filter_selected=' + encodeURIComponent(S.filter) + '&is_filter_search=1' : '');
   try {
     const j = await xhrJson(url);
@@ -219,7 +247,7 @@ S.ready = true;
 function searchPage(kw, first, mixIds) {
   const filterRow = (label, k, opts) => `<div><b>${label}</b>${opts.map(([v, t], i) => `<span data-k="${k}" data-v="${v}" class="${i === 0 ? 'on' : ''}">${t}</span>`).join('')}</div>`;
   const body = `
-<div class="sim-tabs"><span>综合</span><span class="on">视频</span><span>用户</span><span>直播</span>
+<div class="sim-tabs"><span data-type="general">综合</span><span data-type="video">视频</span><span data-type="user">用户</span><span data-type="live">直播</span>
 <span class="sim-filter"><span class="sim-filter-label">筛选 ˅</span><div class="sim-filter-pop">
 ${filterRow('排序依据', 'sort_type', [['0', '综合排序'], ['1', '最多点赞'], ['2', '最新发布']])}
 ${filterRow('发布时间', 'publish_time', [['0', '不限'], ['1', '一天内'], ['7', '一周内'], ['180', '半年内']])}

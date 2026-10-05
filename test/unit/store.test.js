@@ -175,3 +175,13 @@ test('候选：先掉出前列、又回到前列，只写最新的名次', () =>
   St.addCandidate('91', { rank: 3, rankStale: 0, lensLabel: '账号 Top10' });
   assert.equal(St.candidateList()[0].updateNote, '名次变为账号 Top10 第 3 名');
 });
+
+test('路由：从精选首页搜索进来的 /jingxuan/search/关键词 也是搜索页；用户、直播标签不是', () => {
+  assert.deepEqual(St.routeOf(loc('/jingxuan/search/opus5.5', '?aid=x&enter_from=discover&source=normal_search')), { type: 'search', kw: 'opus5.5', modalId: '' });
+  assert.equal(St.routeOf(loc('/jingxuan/search/opus5.5', '?type=video')).type, 'search');
+  assert.equal(St.routeOf(loc('/search/opus5.5', '?type=general')).type, 'search');
+  assert.equal(St.routeOf(loc('/search/opus5.5', '?type=user')).type, 'other');
+  assert.equal(St.routeOf(loc('/jingxuan/search/opus5.5', '?type=live')).type, 'other');
+  assert.equal(St.routeOf(loc('/jingxuan')).type, 'other');
+  assert.equal(St.routeOf(loc('/jingxuan/video/7400000000000000001')).awemeId, '7400000000000000001');
+});

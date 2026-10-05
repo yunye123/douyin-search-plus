@@ -43,9 +43,17 @@
     const qs = new URLSearchParams(loc.search || '');
     const seg = path.split('/');
     const modal = qs.get('modal_id') || '';
-    if (seg[1] === 'search' && seg[2]) return { type: 'search', kw: normKw(seg[2]), modalId: modal };
     if (seg[1] === 'user' && seg[2]) return { type: 'profile', secUid: seg[2], modalId: modal };
-    if ((seg[1] === 'video' || seg[1] === 'note') && /^\d+$/.test(seg[2] || '')) return { type: 'video', awemeId: seg[2], modalId: modal };
+    // 搜索页：/search/关键词，也可能带前缀——在精选首页搜索时是 /jingxuan/search/关键词（2026-10 实测）
+    const si = seg.indexOf('search');
+    if (si >= 1 && seg[si + 1]) {
+      // "用户""直播"标签里没有视频，不当搜索结果页（否则会误报"读不到结果"）
+      const tab = qs.get('type');
+      if (tab === 'user' || tab === 'live') return { type: 'other', modalId: modal };
+      return { type: 'search', kw: normKw(seg[si + 1]), modalId: modal };
+    }
+    const vi = seg.findIndex((s, i) => i >= 1 && (s === 'video' || s === 'note') && /^\d+$/.test(seg[i + 1] || ''));
+    if (vi >= 1) return { type: 'video', awemeId: seg[vi + 1], modalId: modal };
     return { type: 'other', modalId: modal };
   }
 
@@ -133,7 +141,7 @@
     if (r.type === 'search') {
       if (ctx.endpoint && ctx.endpoint !== 'search' && ctx.source === 'api') return 0;
       if (ctx.kw != null && squash(ctx.kw) !== r.kw) return 0;
-      if (ctx.source === 'fiber' && ctx.path && ctx.path.indexOf('/search/') !== 0) return 0;
+      if (ctx.source === 'fiber' && ctx.path && routeOf({ pathname: ctx.path }).type !== 'search') return 0;
       const key = sessionOf(r, normFilter(ctx.filter));
       // 只有"第一页"的接口响应能切换官方筛选会话；翻页响应（offset>0）的筛选和当前会话对不上，
       // 说明是切换筛选前发出的旧请求晚到了，直接丢弃，不把会话切回去

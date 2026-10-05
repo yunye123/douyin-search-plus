@@ -778,3 +778,30 @@ test('从搜索页去精选、打开一个视频：弹窗和入库包都不沿�
   expect(md).toContain('/video/' + X);
   expect(md).not.toContain('发现于');
 });
+
+test('新版地址：从精选首页搜索进来的 /jingxuan/search/关键词（视频标签）照常工作', async ({ page }) => {
+  await page.goto('https://www.douyin.com/jingxuan/search/' + encodeURIComponent('精选进入') + '?aid=x&enter_from=discover&source=normal_search&type=video');
+  await ready(page);
+  const s = await until(page, (x) => x.ui.docked && x.count >= 20);
+  expect(s.route).toEqual({ type: 'search', kw: '精选进入', modalId: '' });
+  await expect(page.locator('#dsp-dock')).toBeVisible();
+  await expect.poll(() => page.locator('#search-result-container li .dsp-ann').count()).toBeGreaterThanOrEqual(18);
+});
+
+test('综合标签（瀑布流）：卡片上有收藏率、工具栏挂在结果上方；点排序提示切到视频，一键切过去就能排序', async ({ page }) => {
+  await page.goto(urls.search('综合测试').replace('type=video', 'type=general'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  // 工具栏挂在瀑布流上方（不是旁边那个空列表），看得见
+  await expect(page.locator('#dsp-dock')).toBeVisible();
+  expect(await page.evaluate(() => document.getElementById('dsp-dock').nextElementSibling.id)).toBe('waterFallScrollContainer');
+  await expect.poll(() => page.locator('[id^="waterfall_item_"] .dsp-ann').count()).toBeGreaterThanOrEqual(18);
+  await expect(page.locator('.bar-text')).toContainText('排序请切到「视频」标签');
+  await dsp(page, 'sort').click();
+  await expect(page.locator('.dsp-toast')).toContainText('切到「视频」标签');
+  await page.locator('.dsp-toast button', { hasText: '切到视频' }).click();
+  await page.waitForURL(/type=video/);
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await expect.poll(() => page.locator('#search-result-container li .dsp-ann').count()).toBeGreaterThanOrEqual(18);
+});

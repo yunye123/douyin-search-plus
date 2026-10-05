@@ -71,6 +71,16 @@ function createSim() {
       const slice = list.slice(offset, offset + count);
       return jsonRes({ status_code: 0, data: slice.map((v) => ({ type: 1, aweme_info: data.toApiAweme(v) })), has_more: offset + count < list.length ? 1 : 0, cursor: offset + count });
     }
+    // "综合"标签的接口：数据形状和视频标签一样（data[].aweme_info）
+    if (p.startsWith('/aweme/v1/web/general/search')) {
+      counters.search++;
+      const kw = url.searchParams.get('keyword') || '';
+      const list = searchSet(kw);
+      const offset = Number(url.searchParams.get('offset') || 0);
+      const count = Number(url.searchParams.get('count') || 10);
+      const slice = list.slice(offset, offset + count);
+      return jsonRes({ status_code: 0, data: slice.map((v) => ({ type: 1, aweme_info: data.toApiAweme(v) })), has_more: offset + count < list.length ? 1 : 0, cursor: offset + count });
+    }
     if (p.startsWith('/aweme/v1/web/aweme/post')) {
       counters.post++;
       const list = profileSet(url.searchParams.get('sec_user_id') || '');
@@ -97,8 +107,10 @@ function createSim() {
     if (p.startsWith('/aweme/')) return jsonRes({ status_code: 0 });
 
     counters.pages++;
-    if (p.startsWith('/search/')) {
-      const kw = decodeURIComponent(p.split('/')[2] || '');
+    // 搜索页：/search/关键词，或从精选首页搜进来的 /jingxuan/search/关键词
+    const sm = /^\/(?:[a-z]+\/)?search\/([^/]+)/.exec(p);
+    if (sm) {
+      const kw = decodeURIComponent(sm[1]);
       const list = searchSet(kw);
       const mixIds = list.filter((v) => v.isMix).map((v) => v.id);
       return html(pages.searchPage(kw, list.slice(0, 20), mixIds));

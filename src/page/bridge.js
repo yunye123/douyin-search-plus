@@ -339,11 +339,18 @@
   // 只扫"结果列表"里的卡片，避免把侧栏推荐、相关视频混进当前会话
   // 按页面类型只扫"结果列表"：搜索页只收搜索结果，主页只收作品列表。
   // 通用的 scroll-list 组件也出现在视频弹层的"TA 的作品"、侧栏推荐里，只在找不到专属容器时兜底
+  // 搜索页地址里的关键词：/search/关键词 或 /jingxuan/search/关键词；不是搜索页返回 null
+  function searchKwOf(path) {
+    const seg = path.split('/');
+    const i = seg.indexOf('search');
+    if (i < 1 || !seg[i + 1]) return null;
+    try { return decodeURIComponent(seg[i + 1]); } catch (e) { return seg[i + 1]; }
+  }
   function listRoots() {
     const p = location.pathname;
     const pick = (sels) => { const out = []; for (const s of sels) document.querySelectorAll(s).forEach((el) => out.push(el)); return out; };
     let roots = [];
-    if (p.indexOf('/search/') === 0) roots = pick(['#search-result-container', '[id^="waterfall_item_"]']);
+    if (searchKwOf(p) != null) roots = pick(['#search-result-container', '[id^="waterfall_item_"]']);
     else if (p.indexOf('/user/') === 0) roots = pick(['[data-e2e="user-post-list"]']);
     else return [];
     if (!roots.length) roots = pick(['main [data-e2e="scroll-list"], #root [data-e2e="scroll-list"]']).filter((el) => !el.closest('[role="dialog"], [class*="modal" i]'));
@@ -370,7 +377,7 @@
   // 读到一次就不再读；读不到时每次扫描再试（只看几个节点，开销很小）
   let detailDone = '';
   function currentVideoId() {
-    const m = /^\/(?:video|note)\/(\d{8,25})/.exec(location.pathname);
+    const m = /(?:^|\/)(?:video|note)\/(\d{8,25})/.exec(location.pathname);
     if (m) return m[1];
     const q = /[?&]modal_id=(\d{8,25})/.exec(location.search);
     return q ? q[1] : '';
@@ -404,13 +411,23 @@
         const rec = fiberRecord(el, m[1]) || fiberRecord(a, m[1]) || (a.parentElement && fiberRecord(a.parentElement, m[1]));
         if (rec) { harvested.set(el, m[1]); items.push(rec); markHydrated(); }
       }
+      // "综合"标签：绝对定位的瀑布流方块，没有链接，视频 id 写在元素 id 上（waterfall_item_<id>）
+      const wf = r.id && r.id.indexOf('waterfall_item_') === 0 ? [r] : r.querySelectorAll('[id^="waterfall_item_"]');
+      for (const el of wf) {
+        const m = /^waterfall_item_(\d{8,25})$/.exec(el.id);
+        if (!m || seen.has(el)) continue;
+        seen.add(el);
+        if (harvested.get(el) === m[1]) continue;
+        const rec = fiberRecord(el, m[1]) || (el.firstElementChild && fiberRecord(el.firstElementChild, m[1]));
+        if (rec) { harvested.set(el, m[1]); items.push(rec); markHydrated(); }
+      }
     }
     if (!items.length) return;
     const path = location.pathname;
     const ctx = { source: 'fiber', path };
-    if (path.indexOf('/search/') === 0) {
-      let kw = '';
-      try { kw = decodeURIComponent(path.split('/')[2] || ''); } catch (e) { kw = path.split('/')[2] || ''; }
+    const skw = searchKwOf(path);
+    if (skw != null) {
+      const kw = skw;
       ctx.kw = kw;
       ctx.filter = lastFilter.kw === kw ? lastFilter.filter : '';
     } else if (path.indexOf('/user/') === 0) {

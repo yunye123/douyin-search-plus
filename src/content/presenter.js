@@ -109,6 +109,7 @@
       if (o.count) out.push({ t: '真需求 ' + o.strongNeed + ' 条', tone: o.strongNeed ? 'em' : 'dim' });
     }
     if (o.count && !o.loading && o.count < SAMPLE_LOW && !(of && o.sorted)) out.push({ t: o.sorted ? '样本少，排名还不准' : '样本较少，建议继续加载', tone: 'dim' });
+    if (o.noSort && o.count) out.push({ t: '排序请切到「视频」标签', tone: 'dim' });
     return out;
   }
 

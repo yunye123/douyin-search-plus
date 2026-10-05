@@ -6,14 +6,29 @@
   const DSP = (globalThis.DSP = globalThis.DSP || {});
 
   const ID_RE = /\/(?:video|note)\/(\d{8,25})/;
+  const WF_RE = /^waterfall_item_(\d{8,25})$/;
   const LINK_SEL = 'a[href*="/video/"], a[href*="/note/"]';
+  // 看得见（隐藏的标签面板 display:none 时没有布局盒子）
+  const visible = (el) => !!(el && el.isConnected && el.getClientRects().length);
+  // 多个候选列表里挑"看得见、卡片最多"的那个：切换标签时，别的标签的列表还留在页面上（空的或隐藏的）
+  function bestList(lists) {
+    let best = null, n = 0;
+    for (const el of lists) {
+      if (!visible(el)) continue;
+      const c = cardsOf(el).length;
+      if (c > n) { best = el; n = c; }
+    }
+    return best;
+  }
 
   // ---------- 结果列表定位 ----------
   // 每个策略返回列表容器（卡片的共同父节点）；按"实测日期"排列，新版在前
   const LIST_STRATEGIES = {
     search: [
-      { name: 'scroll-list@2026-10', find: () => document.querySelector('#search-result-container ul[data-e2e="scroll-list"]') },
-      { name: 'waterfall@2026-07', find: () => { const c = document.querySelector('[id^="waterfall_item_"]'); return c && c.parentElement; } },
+      // "视频"标签：ul 列表，卡片是链接
+      { name: 'scroll-list@2026-10', find: () => bestList(document.querySelectorAll('#search-result-container ul[data-e2e="scroll-list"]')) },
+      // "综合"标签：绝对定位的瀑布流（#waterFallScrollContainer > div#waterfall_item_<id>），卡片没有链接
+      { name: 'waterfall@2026-10', find: () => bestList(new Set([...document.querySelectorAll('[id^="waterfall_item_"]')].map((c) => c.parentElement))) },
       { name: 'heuristic', find: () => heuristicList(document.querySelector('#search-result-container') || mainArea()) },
     ],
     profile: [
@@ -65,7 +80,8 @@
       if (child.id === 'dsp-dock' || child.hasAttribute('data-dsp-own')) continue;
       const a = child.matches(LINK_SEL) ? child : child.querySelector(LINK_SEL);
       const m = a && ID_RE.exec(a.getAttribute('href') || '');
-      const id = m ? m[1] : '';
+      const w = !m && WF_RE.exec(child.id || '');
+      const id = m ? m[1] : w ? w[1] : '';
       if (!id) continue;
       out.push({ el: child, id, a, img: child.querySelector('img') });
     }
