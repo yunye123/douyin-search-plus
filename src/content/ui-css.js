@@ -12,7 +12,7 @@
   --glass: rgba(30, 31, 44, 0.88);
   --line: rgba(255, 255, 255, 0.08); --line2: rgba(255, 255, 255, 0.14);
   /* 文字 */
-  --t1: #EDEDF0; --t2: #A9AAB4; --t3: #9495A0; --t4: #6E6F7B;
+  --t1: #EDEDF0; --t2: #A9AAB4; --t3: #A6A7B1; --t4: #6E6F7B;
   /* 品牌 */
   --red: #FE2C55; --red-solid: #E3173F; --red-text: #FF6B86; --red-soft: rgba(254, 44, 85, 0.16); --red-line: rgba(254, 44, 85, 0.42);
   --cyan: #25F4EE; --cyan-text: #5FF7F2; --cyan-soft: rgba(37, 244, 238, 0.13);
@@ -29,25 +29,25 @@
   --sh-bar: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 12px 32px -8px rgba(0, 0, 0, 0.55);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1); --ease-out: cubic-bezier(0.4, 0, 1, 1);
   --font: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
-  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--cyan);
+  --focus-c: #25F4EE;
   color-scheme: dark;
 }
 :host([data-theme="light"]) {
   --bg: #FFFFFF; --s1: #FFFFFF; --s2: #F4F4F6; --s3: #E9E9EE;
   --glass: rgba(255, 255, 255, 0.9);
   --line: rgba(22, 24, 35, 0.10); --line2: rgba(22, 24, 35, 0.18);
-  --t1: #161823; --t2: #57585F; --t3: #6F7079; --t4: #A0A1A8;
+  --t1: #161823; --t2: #57585F; --t3: #63646C; --t4: #A0A1A8;
   --red-text: #D9123A; --cyan-text: #00807C;
   --tier-high-text: #00807C; --tier-mid-text: #57585F; --tier-low-text: #9A5B00; --tier-show-text: #6B4BC8; --tier-na-text: #6F7079;
   --sh-pop: 0 0 0 1px rgba(22, 24, 35, 0.08), 0 24px 56px -12px rgba(22, 24, 35, 0.28);
   --sh-bar: 0 0 0 1px rgba(22, 24, 35, 0.08), 0 12px 32px -8px rgba(22, 24, 35, 0.22);
-  --focus: 0 0 0 2px #fff, 0 0 0 4px #00A8A3;
+  --focus-c: #00807C;
   color-scheme: light;
 }
 *, *::before, *::after { box-sizing: border-box; }
 .dsp-layer { font: 13px/20px var(--font); color: var(--t1); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; }
-button:focus-visible, input:focus-visible, [tabindex]:focus-visible, a:focus-visible { outline: none; box-shadow: var(--focus); }
+:is(button, input, select, a, [tabindex]):focus-visible { outline: 2px solid var(--focus-c); outline-offset: 2px; }
 svg { display: block; flex: none; }
 .dsp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .num { font-variant-numeric: tabular-nums; }
@@ -75,12 +75,12 @@ svg { display: block; flex: none; }
 .dsp-pop.dsp-in { opacity: 1; transform: none; transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
 .dsp-tip { position: fixed; z-index: 40; max-width: 260px; padding: 8px 10px; background: var(--s3); color: var(--t1); border-radius: 8px; box-shadow: var(--sh-pop);
   font: 12px/18px var(--font); pointer-events: none; opacity: 0; transform: translateY(2px); transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
-.dsp-tip.dsp-in { opacity: 1; transform: none; transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
+.dsp-tip.dsp-in { opacity: 1; transform: none; pointer-events: auto; transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
 .dsp-tip.dsp-measure { opacity: 0 !important; transition: none; }
 .dsp-tip-title { font-weight: 600; margin-bottom: 2px; }
 .dsp-tip-body { color: var(--t2); }
 .dsp-tip-foot { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--t3); font-size: 11px; line-height: 16px; }
-.dsp-toast { position: fixed; z-index: 50; display: flex; align-items: center; gap: 8px; min-height: 40px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 8px 8px 12px;
+.dsp-toast { position: fixed; z-index: 50; left: 0; right: 0; bottom: 24px; margin: 0 auto; width: max-content; display: flex; align-items: center; gap: 8px; min-height: 40px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 8px 8px 12px;
   background: var(--s3); color: var(--t1); border-radius: 12px; box-shadow: var(--sh-pop); font: 13px/20px var(--font);
   opacity: 0; translate: 0 6px; transition: opacity 160ms var(--ease), translate 160ms var(--ease); pointer-events: none; }
 .dsp-toast.dsp-in { opacity: 1; translate: 0 0; pointer-events: auto; }
@@ -90,7 +90,8 @@ svg { display: block; flex: none; }
 .dsp-toast-act { height: 28px; padding: 0 10px; border-radius: 8px; color: var(--cyan-text); font-weight: 600; }
 .dsp-toast-act:hover { background: var(--line); }
 @media (prefers-reduced-motion: reduce) {
-  .dsp-pop, .dsp-pop.dsp-in, .dsp-tip, .dsp-tip.dsp-in, .dsp-toast, .dsp-toast.dsp-in { transform: none !important; translate: none !important; transition: opacity 80ms linear !important; }
+  .dsp-pop, .dsp-pop.dsp-in, .dsp-tip, .dsp-tip.dsp-in { transform: none !important; transition: opacity 80ms linear !important; }
+  .dsp-toast, .dsp-toast.dsp-in { translate: none !important; transition: opacity 80ms linear !important; }
 }
 `;
 

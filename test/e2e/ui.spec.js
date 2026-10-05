@@ -103,7 +103,7 @@ test('暂停插件：页面完全还原；点启动器恢复', async ({ page }) 
   await page.locator('[data-lens="ratio"]').click();
   await until(page, (x) => x.view.active);
   await dsp(page, 'more').click();
-  await page.getByRole('menuitem', { name: /暂停插件/ }).click();
+  await page.getByRole('button', { name: /暂停插件/ }).click();
   await until(page, (x) => x.ui.paused);
   await expect(page.locator('#dsp-dock')).toHaveCount(0);
   await expect(page.locator('.dsp-ann')).toHaveCount(0);
@@ -180,4 +180,69 @@ test('视频弹层里出现"登录后查看更多评论"不会被误判成登录
   await page.waitForTimeout(1500);
   const s = await state(page);
   expect(s.ui.health).not.toBe('blocked');
+});
+
+test('只用键盘：聚焦收藏率不抢焦点；回车看详情并加入候选；↓ 按名次跳到下一张', async ({ page }) => {
+  await page.goto(urls.search('键盘测试'));
+  await ready(page);
+  await page.getByRole('button', { name: '知道了' }).click();
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="ratio"]').click();
+  await until(page, (x) => x.view.active);
+  // 第 1 名的收藏率标签
+  const first = page.locator('.dsp-ann .chip[aria-label^="第 1 名"]');
+  await first.focus();
+  await page.waitForTimeout(600);
+  await expect(page.locator('.dsp-detail')).toHaveCount(0); // 聚焦不自动弹详情
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.dsp-detail')).toBeVisible();
+  await page.waitForTimeout(700);
+  await expect(page.locator('.dsp-detail')).toBeVisible(); // 钉住，不会自己消失
+  await page.keyboard.press('Enter'); // 焦点在"加入候选"
+  await until(page, (x) => x.candidates.length === 1);
+  await expect(page.locator('.dsp-detail')).toHaveCount(0);
+  const focusedLabel = await page.evaluate(() => {
+    let a = document.activeElement;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    return a && a.getAttribute('aria-label');
+  });
+  expect(focusedLabel).toMatch(/^第 1 名/); // 焦点回到标签
+  await page.keyboard.press('ArrowDown');
+  const next = await page.evaluate(() => {
+    let a = document.activeElement;
+    while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement;
+    return a && a.getAttribute('aria-label');
+  });
+  expect(next).toMatch(/^第 2 名/);
+});
+
+test('关键词带加号（AI+办公）照常读取', async ({ page }) => {
+  await page.goto('https://www.douyin.com/search/AI%2B%E5%8A%9E%E5%85%AC?type=video');
+  await ready(page);
+  const s = await until(page, (x) => x.count >= 20, { label: '加号关键词' });
+  expect(s.route.kw).toBe('AI+办公');
+  expect(s.ui.health).toBe('ok');
+});
+
+test('轻提示出现在底部、不盖住第一行；按钮叫"达标线"', async ({ page }) => {
+  await page.goto(urls.search('提示位置'));
+  await ready(page);
+  await expect(dsp(page, 'filter')).toContainText('达标线');
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="need"]').click();
+  const box = await page.locator('.dsp-toast').boundingBox();
+  const vh = page.viewportSize().height;
+  expect(box.y).toBeGreaterThan(vh - 120);
+});
+
+test('引导条在工具栏下方（不浮在卡片上）；滚动不会让它永久消失，点"知道了"才关', async ({ page }) => {
+  await page.goto(urls.search('引导'));
+  await ready(page);
+  await expect(page.locator('.guide')).toBeVisible();
+  await page.mouse.wheel(0, 800);
+  await page.waitForTimeout(400);
+  expect((await state(page)).settings.guideDone).toBe(false);
+  await page.getByRole('button', { name: '知道了' }).click();
+  await expect(page.locator('.guide')).toHaveCount(0);
+  expect((await state(page)).settings.guideDone).toBe(true);
 });

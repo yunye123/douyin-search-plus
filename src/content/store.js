@@ -8,11 +8,13 @@
   const M = DSP.metrics || (typeof require === 'function' ? require('./metrics.js') : null);
 
   // ---------------- 路由 ----------------
-  // 关键词统一规范化：URL 解码、+ 当空格、去首尾空白、合并连续空白
-  function normKw(s) {
-    let t = String(s || '');
-    try { t = decodeURIComponent(t.replace(/\+/g, ' ')); } catch (e) { t = t.replace(/\+/g, ' '); }
-    return t.replace(/\s+/g, ' ').trim();
+  // 关键词规范化。只在一处解码：地址路径段用 decodeURIComponent（路径里的 + 就是加号，不是空格），
+  // 接口参数和数据桥送来的关键词已经解码过，只合并空白。"AI+办公""C++"这类词因此不会被误判成别的关键词。
+  const squash = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  function normKw(pathSeg) {
+    let t = String(pathSeg || '');
+    try { t = decodeURIComponent(t); } catch (e) { /* 不是合法编码就按原样 */ }
+    return squash(t);
   }
   // 官方筛选参数规范化：键排序后序列化，避免同一筛选因字段顺序不同被当成新会话
   function normFilter(s) {
@@ -99,8 +101,9 @@
     } else if (route.type === 'profile') {
       setSession(sessionOf(route), S.route.secUid === (prev && prev.secUid) ? S.sessionLabel : '');
     }
-    if (route.type !== prev.type || route.kw !== prev.kw || route.secUid !== prev.secUid || route.awemeId !== prev.awemeId) {
-      S.profileStats = route.type === 'profile' ? S.profileStats : null;
+    // 打开/关闭/切换视频弹层（modal_id）也算路由变化：评论加载要停，评论模式要清
+    if (route.type !== prev.type || route.kw !== prev.kw || route.secUid !== prev.secUid || route.awemeId !== prev.awemeId || route.modalId !== prev.modalId) {
+      if (route.secUid !== prev.secUid) S.profileStats = null; // 换博主：账号总获赞要重读
       ev.emit('route', route);
     }
   }
@@ -113,9 +116,12 @@
     if (!Array.isArray(items) || !items.length) return 0;
     if (r.type === 'search') {
       if (ctx.endpoint && ctx.endpoint !== 'search' && ctx.source === 'api') return 0;
-      if (ctx.kw != null && normKw(ctx.kw) !== r.kw) return 0;
+      if (ctx.kw != null && squash(ctx.kw) !== r.kw) return 0;
       if (ctx.source === 'fiber' && ctx.path && ctx.path.indexOf('/search/') !== 0) return 0;
       const key = sessionOf(r, normFilter(ctx.filter));
+      // 只有"第一页"的接口响应能切换官方筛选会话；翻页响应（offset>0）的筛选和当前会话对不上，
+      // 说明是切换筛选前发出的旧请求晚到了，直接丢弃，不把会话切回去
+      if (key !== S.session && ctx.source === 'api' && Number(ctx.offset) > 0) return 0;
       setSession(key, '搜索「' + r.kw + '」');
     } else if (r.type === 'profile') {
       if (ctx.source === 'api' && ctx.endpoint !== 'profile') return 0;

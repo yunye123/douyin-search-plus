@@ -102,7 +102,8 @@
       label: S.sessionLabel,
       count: S.videos.size,
       strongNeed: S.videos.size ? v.summary.strongNeed : null,
-      sortLabel: keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : '',
+      // 和页面工具栏同一个说法：有看法时用看法名（「真需求」），否则列出指标
+      sortLabel: (() => { const l = DSP.presenter.matchLens(S.view); return l ? '「' + l.label + '」' : keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : ''; })(),
       comments: S.comments.map.size,
       candidates: S.candidates.size,
       health: DSP.ui && DSP.ui.health ? DSP.ui.health() : 'ok',

@@ -137,3 +137,16 @@ test('按分档筛选与未达标原因', () => {
   assert.equal(M.failReason(b, { min: { digg: 10000 } }), '赞 < 1万');
   assert.equal(M.failReason(a, { minCr: 0.8 }), '');
 });
+
+test('倒序时样本少和缺数据仍排在最后', () => {
+  const list = [
+    mk('a', { digg: 1000, collect: 900 }),
+    mk('b', { digg: 1000, collect: 300 }),
+    mk('c', { digg: 50, collect: 80 }),   // 样本少
+    mk('d', { digg: 1000, collect: null }), // 缺数据
+  ];
+  assert.deepEqual(M.sortList(list, ['cr'], true).map((x) => x.v.id).slice(0, 2), ['b', 'a']);
+  assert.deepEqual(M.sortList(list, ['cr'], true).map((x) => x.v.id).slice(2).sort(), ['c', 'd']);
+  assert.equal(M.tierLabel(list[3]), '缺数据');
+  assert.equal(M.tierLabel(list[2]), '样本少');
+});

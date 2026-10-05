@@ -22,12 +22,17 @@
   }
 
   // 一行评论的数据：{ cid, digg, replies, text, source }
-  function dataOf(row) {
+  // used：本轮已经配给别的行的接口评论（同一条接口数据只能配一行，重复短评不会全套用第一条）
+  function dataOf(row, used) {
+    used = used || new Set();
     const it = row.item;
     const stampCid = it.getAttribute('data-dsp-cid');
     const sig = (stampCid || '') + '|' + (it.getAttribute('data-dsp-digg') || '') + '|' + DSP.store.S.comments.version;
     const cached = rowCache.get(row.el);
-    if (cached && cached.sig === sig) return cached.data;
+    if (cached && cached.sig === sig && !(cached.data.source === 'api' && used.has(cached.data.cid))) {
+      if (cached.data.cid) used.add(cached.data.cid);
+      return cached.data;
+    }
     let data = null;
     const C = DSP.store.S.comments.map;
     if (stampCid) {
@@ -48,8 +53,15 @@
           if (el.children.length > 4) continue;
           const k = A.normText(el.textContent);
           const list = k.length >= 2 && idx.get(k);
-          if (list && list.length) {
-            const c = list[0];
+          const free = list ? list.filter((c) => !used.has(c.cid)) : [];
+          if (free.length) {
+            // 多条同名候选时，优先选点赞数与页面上显示一致的那条；仍不唯一就按出现顺序逐个消耗
+            let c = free[0];
+            if (free.length > 1) {
+              const shown = A.domCommentDigg(it);
+              const same = shown != null && free.find((x) => x.digg === shown);
+              if (same) c = same;
+            }
             data = { cid: c.cid, digg: c.digg, replies: c.replies, text: c.text, source: 'api' };
             break;
           }
@@ -60,6 +72,7 @@
       const d = A.domCommentDigg(it);
       data = { cid: '', digg: d == null ? -1 : d, replies: 0, text: '', source: 'dom' };
     }
+    if (data.cid) used.add(data.cid);
     rowCache.set(row.el, { sig, data });
     return data;
   }
@@ -72,8 +85,9 @@
     if (!list) return { rows: 0 };
     const rows = A.commentRows(list);
     if (!state.mode && !state.highlight) { restore(); return { rows: rows.length }; }
+    const used = new Set();
     const scored = rows.map((r, i) => {
-      const d = dataOf(r);
+      const d = dataOf(r, used);
       const text = d.text || r.item.textContent || '';
       return { r, i, d, hit: state.highlight ? E.barrierHits(text).includes(state.highlight) : false };
     });

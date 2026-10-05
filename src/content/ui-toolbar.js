@@ -1,5 +1,5 @@
 // 结果工具栏：插在抖音结果列表上方、随滚动吸顶。左边一句状态 + 收藏率分布条，右边少量按钮，
-// 复杂选项都收进贴着按钮弹出的弹层（排序 / 门槛 / 更多）。
+// 复杂选项都收进贴着按钮弹出的弹层（排序 / 达标线 / 更多）。
 // 只负责"画"和"把用户操作转成意图"，状态与业务逻辑在 ui.js 里。
 (() => {
   'use strict';
@@ -33,20 +33,22 @@
     const actions = h('div', { class: 'bar-actions' });
     els.sort = h('button', { class: 'btn', type: 'button', 'data-dsp': 'sort', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => api.openSort(els.sort) },
       icon('sort', 16), h('span', { class: 'btn-k' }, '排序'), els.sortVal = h('b', { class: 'btn-v' }), icon('chevron', 14, 'chev'));
+    // "达标线"是用户自己设的筛选线；"门槛 / 有门槛"只保留选题 SOP 里的意思（内容太难、太贵、进不去）
     els.filter = h('button', { class: 'btn', type: 'button', 'data-dsp': 'filter', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => api.openFilter(els.filter) },
-      icon('filter', 16), h('span', null, '门槛'), els.filterN = h('span', { class: 'count' }));
-    els.load = h('button', { class: 'btn', type: 'button', 'data-dsp': 'load', onclick: () => api.toggleLoad() },
-      els.loadIcon = icon('down', 16), els.loadText = h('span', null, '继续加载'));
+      icon('filter', 16), h('span', null, '达标线'), els.filterN = h('span', { class: 'count' }));
+    els.loadIcon = h('span', { class: 'ic-slot' }, icon('loadMore', 16));
+    els.load = h('button', { class: 'btn btn-load', type: 'button', 'data-dsp': 'load', onclick: () => api.toggleLoad() },
+      els.loadIcon, els.loadText = h('span', { class: 'keep' }, '继续加载'));
     els.basket = h('button', { class: 'btn', type: 'button', 'data-dsp': 'basket', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => api.openBasket(els.basket) },
       icon('star', 16), h('span', null, '候选'), els.basketN = h('span', { class: 'count' }));
-    els.more = h('button', { class: 'icon-btn', type: 'button', 'data-dsp': 'more', 'aria-label': '更多', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => api.openMore(els.more) }, icon('more', 18));
+    els.more = h('button', { class: 'icon-btn', type: 'button', 'data-dsp': 'more', 'aria-label': '更多', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => api.openMore(els.more) }, icon('more', 18));
     actions.append(els.sort, els.filter, els.load, h('span', { class: 'sep', 'aria-hidden': 'true' }), els.basket, els.more);
 
     els.progress = h('div', { class: 'progress', 'aria-hidden': 'true' }, els.progressFill = h('i'));
     bar.append(status, els.dist, actions, els.progress);
 
     bindTip(els.sort, () => ({ title: '排序', body: '选一个看法重排结果：真需求、起飞中、热议，或任意指标的组合。' }), api.layer());
-    bindTip(els.filter, () => ({ title: '门槛', body: '只看达标的结果，例如收藏率 ≥ 80%、近 30 天、赞 ≥ 1万。没达标的会变暗沉到最后，不会消失。' }), api.layer());
+    bindTip(els.filter, () => ({ title: '达标线', body: '只看过线的结果，例如收藏率 ≥ 80%、近 30 天、赞 ≥ 1万。没过线的会变暗沉到最后，不会消失。' }), api.layer());
     bindTip(els.load, () => (api.loading()
       ? { title: '停止加载', body: '停在这里，已读到的都还在。' }
       : { title: '继续加载', body: '替你往下滚动，让抖音多加载一些结果（上限 ' + api.cap() + ' 条）。随机间隔，遇到登录或验证会立即停。' }), api.layer());
@@ -72,12 +74,16 @@
     bar.classList.toggle('is-loading', vm.loading);
     bar.classList.toggle('is-compact', vm.width < 1060);
     bar.classList.toggle('is-tight', vm.width < 880);
-    // 状态句
-    clear(els.text);
-    vm.status.forEach((s, i) => {
-      if (i) els.text.appendChild(h('span', { class: 'dot-sep', 'aria-hidden': 'true' }, '·'));
-      els.text.appendChild(h('span', { class: s.tone ? 'tone-' + s.tone : '' }, s.t));
-    });
+    // 状态句：内容变了才重写（这里是 live region，每秒重写会让读屏反复朗读同一句）
+    const sig = vm.status.map((s) => s.tone + ':' + s.t).join('|');
+    if (t.statusSig !== sig) {
+      t.statusSig = sig;
+      clear(els.text);
+      vm.status.forEach((s, i) => {
+        if (i) els.text.appendChild(h('span', { class: 'dot-sep', 'aria-hidden': 'true' }, '·'));
+        els.text.appendChild(h('span', { class: s.tone ? 'tone-' + s.tone : '' }, s.t));
+      });
+    }
     const okish = vm.health === 'ok' || vm.health === 'partial';
     els.reset.hidden = !(okish && (vm.sorted || vm.filterCount > 0));
     els.retry.hidden = vm.health !== 'fail';
@@ -91,19 +97,26 @@
     els.sort.classList.toggle('on', vm.sorted);
     els.filterN.textContent = vm.filterCount ? String(vm.filterCount) : '';
     els.filter.classList.toggle('on', vm.filterCount > 0);
-    els.loadText.textContent = vm.loading ? '停止 ' + vm.count + '/' + vm.cap : '继续加载';
+    const loadText = vm.loading ? '停止 ' + vm.count + '/' + vm.cap : '继续加载';
+    if (els.loadText.textContent !== loadText) els.loadText.textContent = loadText;
     els.load.classList.toggle('primary', !vm.loading && vm.count > 0 && vm.count < P.SAMPLE_LOW && okish);
     els.load.classList.toggle('on', vm.loading);
-    clear(els.load).append(vm.loading ? icon('pause', 16) : icon('down', 16), els.loadText);
+    if (els.loadIcon.dataset.k !== String(vm.loading)) { els.loadIcon.dataset.k = String(vm.loading); clear(els.loadIcon).appendChild(icon(vm.loading ? 'pause' : 'loadMore', 16)); }
     els.basketN.textContent = vm.candidates ? String(vm.candidates) : '';
     els.basket.classList.toggle('has', vm.candidates > 0);
     els.progressFill.style.width = vm.loading ? Math.min(100, (vm.count / Math.max(1, vm.cap)) * 100) + '%' : '0%';
-    renderDist(els, vm);
+    renderDist(t, els, vm);
   }
 
-  function renderDist(els, vm) {
+  // 分布条只在各档数量或选中档变化时重建（每秒重建会把键盘焦点从分段上弄丢）
+  function renderDist(t, els, vm) {
     const c = vm.tiers || {};
     const total = TIER_ORDER.reduce((s, k) => s + (c[k] || 0), 0);
+    const sig = TIER_ORDER.map((k) => c[k] || 0).join(',') + '|' + (vm.tierFilter || '');
+    if (t.distSig === sig) return;
+    t.distSig = sig;
+    const root = els.distBar.getRootNode();
+    const focusedTier = root.activeElement && root.activeElement.dataset ? root.activeElement.dataset.tier : '';
     clear(els.distBar);
     clear(els.distLegend);
     if (!total) return;
@@ -125,6 +138,7 @@
       h('span', { class: 'lg lg-high' }, h('i'), '真需求 ', h('b', null, String(c.high || 0))),
       h('span', { class: 'lg lg-low' }, h('i'), '有门槛 ', h('b', null, String(c.low || 0))),
     );
+    if (focusedTier) { const f = els.distBar.querySelector('[data-tier="' + focusedTier + '"]'); if (f) f.focus({ preventScroll: true }); }
   }
 
   // ---------------- 排序弹层 ----------------
@@ -132,11 +146,11 @@
   function sortPanel(vm, api) {
     const panel = h('div', { class: 'pop-sort' });
     panel.appendChild(h('div', { class: 'pop-h' }, '选题看法'));
-    const lensBox = h('div', { class: 'lens-list', role: 'radiogroup', 'aria-label': '选题看法' });
+    const lensBox = h('div', { class: 'lens-list', role: 'group', 'aria-label': '选题看法' });
     for (const l of P.lensesFor(vm.type)) {
       const on = vm.lens === l.key;
       lensBox.appendChild(h('button', {
-        class: 'lens' + (on ? ' on' : ''), type: 'button', role: 'radio', 'aria-checked': on ? 'true' : 'false', 'data-lens': l.key,
+        class: 'lens' + (on ? ' on' : ''), type: 'button', 'aria-pressed': on ? 'true' : 'false', 'data-lens': l.key,
         'data-autofocus': on || (!vm.lens && l.key === 'need') ? '' : null,
         onclick: () => { api.applyLens(l.key); closePop(true); },
       },
@@ -145,6 +159,17 @@
       on ? icon('check', 16, 'lens-ck') : null));
     }
     panel.appendChild(lensBox);
+
+    // 自定义排序：单项指标 / 组合 / 方向，默认折叠（最常用的是上面几种看法）
+    const open = vm.customOpen || (!vm.lens && vm.sortKeys.length > 0);
+    const toggle = h('button', { class: 'custom-toggle', type: 'button', 'aria-expanded': open ? 'true' : 'false', 'data-dsp': 'custom', onclick: () => api.toggleCustom() },
+      icon('chevron', 14, 'tg-ic'), h('b', null, '自定义排序'), h('span', { class: 'pop-hint' }, '任选指标、组合、方向'));
+    panel.appendChild(h('div', { class: 'custom-row' }, toggle,
+      h('button', { class: 'link', type: 'button', 'data-dsp': 'pop-reset', onclick: () => { api.resetView(); closePop(true); } }, icon('refresh', 14), '原顺序')));
+    if (!open) {
+      if (vm.lowSample) panel.appendChild(h('div', { class: 'pop-note' }, '点赞不足 100 的 ' + vm.lowSample + ' 条，比率波动太大，不参与比率排名，排在最后。'));
+      return panel;
+    }
 
     panel.appendChild(h('div', { class: 'pop-h' }, '单项指标', h('span', { class: 'pop-hint' }, vm.combo ? '依次点 2~3 项' : '点一下就排')));
     const grid = h('div', { class: 'metric-grid' });
@@ -168,21 +193,20 @@
     if (vm.combo && vm.sortKeys.length > 1) {
       panel.appendChild(h('div', { class: 'formula' }, '综合名次 = ' + vm.sortKeys.map((k) => M.METRICS[k].label + '名次').join(' + ')));
     }
-    const dir = h('div', { class: 'seg-ctl', role: 'radiogroup', 'aria-label': '方向' },
-      h('button', { type: 'button', role: 'radio', 'aria-checked': !vm.asc ? 'true' : 'false', class: !vm.asc ? 'on' : '', onclick: () => api.setAsc(false) }, '高 → 低'),
-      h('button', { type: 'button', role: 'radio', 'aria-checked': vm.asc ? 'true' : 'false', class: vm.asc ? 'on' : '', onclick: () => api.setAsc(true) }, '低 → 高'));
-    panel.appendChild(h('div', { class: 'pop-foot' }, h('span', { class: 'pop-k' }, '方向'), dir,
-      h('button', { class: 'link', type: 'button', onclick: () => { api.resetView(); closePop(true); } }, icon('refresh', 14), '原顺序')));
+    const dir = h('div', { class: 'seg-ctl', role: 'group', 'aria-label': '方向' },
+      h('button', { type: 'button', 'aria-pressed': !vm.asc ? 'true' : 'false', 'data-dir': 'desc', class: !vm.asc ? 'on' : '', onclick: () => api.setAsc(false) }, '高 → 低'),
+      h('button', { type: 'button', 'aria-pressed': vm.asc ? 'true' : 'false', 'data-dir': 'asc', class: vm.asc ? 'on' : '', onclick: () => api.setAsc(true) }, '低 → 高'));
+    panel.appendChild(h('div', { class: 'pop-foot' }, h('span', { class: 'pop-k' }, '方向'), dir));
     if (vm.lowSample) panel.appendChild(h('div', { class: 'pop-note' }, '点赞不足 100 的 ' + vm.lowSample + ' 条，比率波动太大，不参与比率排名，排在最后。'));
     return panel;
   }
 
-  // ---------------- 门槛弹层 ----------------
+  // ---------------- 达标线弹层 ----------------
   function filterPanel(vm, api) {
     const f = vm.filter;
     const panel = h('div', { class: 'pop-filter' });
     const head = h('div', { class: 'pf-head' },
-      h('div', { class: 'pf-big' }, h('b', { class: 'pf-n' }, String(vm.passCount)), h('span', null, ' / ' + vm.count + ' 条达标')),
+      h('div', { class: 'pf-big' }, h('b', { class: 'pf-n' }, String(vm.passCount)), h('span', null, ' / ' + vm.count + ' 条过线')),
       h('div', { class: 'pf-meter' }, h('i', { style: { width: (vm.count ? (vm.passCount / vm.count) * 100 : 0) + '%' } })));
     panel.appendChild(head);
     panel.appendChild(h('div', { class: 'pop-h' }, '常用'));
@@ -196,12 +220,14 @@
     panel.appendChild(quick);
     panel.appendChild(h('div', { class: 'pop-h' }, '至少', h('span', { class: 'pop-hint' }, '可以写 1万、1.5w、2000')));
     for (const [k, label] of [['digg', '点赞'], ['collect', '收藏'], ['comment', '评论']]) {
-      const hint = h('span', { class: 'in-hint' });
-      const inp = h('input', { class: 'in', type: 'text', inputmode: 'decimal', placeholder: '不限', value: f.min[k] ? U.fmtNum(f.min[k]) : '', 'aria-label': label + '至少', 'data-min': k });
+      const hid = 'dsp-hint-' + k;
+      const hint = h('span', { class: 'in-hint', id: hid, 'aria-live': 'polite' });
+      const inp = h('input', { class: 'in', type: 'text', inputmode: 'decimal', placeholder: '不限', value: f.min[k] ? U.fmtNum(f.min[k]) : '', 'aria-label': label + '至少', 'aria-describedby': hid, 'data-min': k });
       let t = 0;
       const commit = () => {
         const n = P.parseCount(inp.value);
-        if (Number.isNaN(n)) { hint.textContent = '看不懂这个数'; hint.className = 'in-hint bad'; return; }
+        if (Number.isNaN(n)) { hint.textContent = '看不懂这个数，可以写 1万、1.5w、2000'; hint.className = 'in-hint bad'; inp.setAttribute('aria-invalid', 'true'); return; }
+        inp.removeAttribute('aria-invalid');
         hint.textContent = n >= 10000 ? '= ' + n.toLocaleString('zh-CN') : '';
         hint.className = 'in-hint';
         api.patchFilter({ min: Object.assign({}, api.filter().min, { [k]: n }) });
@@ -212,9 +238,9 @@
       panel.appendChild(h('label', { class: 'in-row' }, h('span', { class: 'in-k' }, label), inp, hint));
     }
     panel.appendChild(h('div', { class: 'pop-foot' },
-      h('button', { class: 'link', type: 'button', onclick: () => { api.clearFilter(); api.refreshPop(); } }, '清除门槛'),
+      h('button', { class: 'link', type: 'button', onclick: () => { api.clearFilter(); api.refreshPop(); } }, '清除达标线'),
       h('button', { class: 'btn primary', type: 'button', onclick: () => closePop(true) }, '完成')));
-    panel.appendChild(h('div', { class: 'pop-note' }, '没达标的结果会变暗、沉到最后，鼠标移上去可以看清，不会被删掉。'));
+    panel.appendChild(h('div', { class: 'pop-note' }, '没过线的结果会变暗、沉到最后，鼠标移上去可以看清，不会被删掉。'));
     return panel;
   }
   function updateFilterHead(panel, vm) {
@@ -228,8 +254,8 @@
 
   // ---------------- 更多菜单 ----------------
   function morePanel(vm, api) {
-    const item = (ic, label, run, extra) => h('button', { class: 'mi', type: 'button', role: 'menuitem', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label), extra || null);
-    const panel = h('div', { class: 'pop-more', role: 'menu' });
+    const item = (ic, label, run, extra) => h('button', { class: 'mi', type: 'button', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label), extra || null);
+    const panel = h('div', { class: 'pop-more' });
     panel.append(
       item('copy', '复制当前结果（表格）', () => api.exportView('tsv'), h('span', { class: 'mi-k' }, vm.passCount + ' 条')),
       item('download', '下载当前结果 CSV', () => api.exportView('csv')),
@@ -261,13 +287,15 @@
 .link:hover { color: var(--t1); background: var(--line); }
 .link[hidden], .dist[hidden] { display: none; }
 .dist { flex: 0 1 230px; min-width: 120px; display: flex; flex-direction: column; gap: 4px; }
-.dist-bar { display: flex; gap: 2px; height: 8px; }
-.seg { min-width: 6px; height: 8px; border-radius: 2px; padding: 0; transition: transform 120ms, opacity 120ms; }
-.seg:hover { transform: scaleY(1.4); }
-.seg-high { background: var(--tier-high); } .seg-mid { background: var(--tier-mid); } .seg-low { background: var(--tier-low); } .seg-show { background: var(--tier-show); }
-.seg-na { background: repeating-linear-gradient(135deg, #5A5B6C 0 3px, #3A3B4A 3px 6px); }
-.dist-bar:has(.seg.on) .seg:not(.on) { opacity: .3; }
-.seg.on { box-shadow: 0 0 0 1.5px var(--t1); }
+/* 分段：按钮本身是 24px 高的透明点击区（WCAG 2.5.8），8px 色条画在中间 */
+.dist-bar { display: flex; gap: 2px; height: 24px; margin: -8px 0; }
+.seg { position: relative; min-width: 24px; height: 24px; padding: 0; background: none; }
+.seg::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 8px; border-radius: 2px; transition: transform 120ms, opacity 120ms; }
+.seg:hover::before { transform: scaleY(1.4); }
+.seg-high::before { background: var(--tier-high); } .seg-mid::before { background: var(--tier-mid); } .seg-low::before { background: var(--tier-low); } .seg-show::before { background: var(--tier-show); }
+.seg-na::before { background: repeating-linear-gradient(135deg, #5A5B6C 0 3px, #3A3B4A 3px 6px); }
+.dist-bar:has(.seg.on) .seg:not(.on)::before { opacity: .3; }
+.seg.on::before { box-shadow: 0 0 0 1.5px var(--t1); }
 .dist-legend { display: flex; gap: 12px; font-size: 11px; line-height: 14px; color: var(--t3); white-space: nowrap; }
 .lg i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: 1px; }
 .lg b { color: var(--t1); font-weight: 600; }
@@ -298,16 +326,23 @@
 .progress i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--red), var(--red) calc(100% - 3px), var(--cyan) 0); transition: width 400ms var(--ease); }
 .bar.is-compact .dist-legend, .bar.is-compact .btn .btn-k { display: none; }
 .bar.is-tight .dist { display: none; }
-.bar.is-tight .btn > span:not(.count):not(.btn-v) { display: none; }
+.bar.is-tight .btn > span:not(.count):not(.btn-v):not(.keep):not(.ic-slot) { display: none; }
+.ic-slot { display: inline-flex; }
 .bar.is-tight .btn { padding: 0 8px; }
 
 /* 弹层通用 */
 .pop-sort, .pop-filter { width: 340px; padding: 8px; }
 .pop-more { width: 260px; padding: 6px; }
 .pop-h { display: flex; align-items: baseline; justify-content: space-between; padding: 10px 10px 6px; color: var(--t3); font: 600 12px/18px var(--font); }
-.pop-hint { font-weight: 400; color: var(--t4); }
+.pop-hint { font-weight: 400; color: var(--t3); }
 .pop-foot { display: flex; align-items: center; gap: 8px; padding: 10px 6px 4px; margin-top: 6px; border-top: 1px solid var(--line); }
 .pop-foot .link { margin-left: auto; }
+.custom-row { display: flex; align-items: center; gap: 4px; margin: 6px 2px 0; padding-top: 6px; border-top: 1px solid var(--line); }
+.custom-toggle { flex: 1; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px; border-radius: 8px; text-align: left; }
+.custom-toggle:hover { background: var(--line); }
+.custom-toggle b { font-weight: 600; }
+.custom-toggle .tg-ic { transform: rotate(-90deg); transition: transform 160ms var(--ease); color: var(--t3); }
+.custom-toggle[aria-expanded="true"] .tg-ic { transform: none; }
 .pop-k { color: var(--t3); font-size: 12px; }
 .pop-note { margin: 6px 6px 2px; color: var(--t3); font-size: 12px; line-height: 18px; }
 .lens-list { display: flex; flex-direction: column; gap: 2px; }
@@ -364,7 +399,7 @@
 .mi span:first-of-type { flex: 1; }
 .mi-k { color: var(--t3); font-size: 12px; }
 .mi-sep { height: 1px; background: var(--line); margin: 4px 6px; }
-.mi-foot { padding: 8px 10px 4px; color: var(--t4); font-size: 11px; line-height: 16px; }
+.mi-foot { padding: 8px 10px 4px; color: var(--t3); font-size: 11px; line-height: 16px; }
 `;
   DSP.css = (DSP.css || '') + CSS;
 

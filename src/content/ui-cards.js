@@ -17,7 +17,8 @@
 .rank.top { background: #E3173F; box-shadow: none; }
 .chip { pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 7px; color: #EDEDF0;
   background: rgba(12, 13, 20, 0.62); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); cursor: default; border: 0; font: inherit; white-space: nowrap; }
-.chip:focus-visible { outline: none; box-shadow: 0 0 0 2px #161722, 0 0 0 4px #25F4EE; }
+.chip:focus-visible, .cand:focus-visible { outline: 2px solid #25F4EE; outline-offset: 2px; }
+.chip.dim { opacity: .9; }
 .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .lbl { color: rgba(237,237,240,.72); font-weight: 500; }
 .high { background: #25F4EE; color: #04262B; box-shadow: none; }
@@ -26,15 +27,15 @@
 .low .dot { background: #FFB547; } .low .v { color: #FFC670; }
 .show .dot { background: #B597FF; } .show .v { color: #C9B3FF; }
 .na { color: #9495A0; } .na .dot { background: transparent; box-shadow: inset 0 0 0 1.5px #6E6F7B; }
-.cand { pointer-events: auto; display: none; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 7px; border: 0; font: inherit; cursor: pointer;
+/* 候选按钮平时透明（仍在 Tab 顺序里，键盘能到），悬停卡片或键盘聚焦时出现；放在最左边，出现时不推动名次和收藏率 */
+.cand { pointer-events: none; opacity: 0; display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px; border-radius: 7px; border: 0; font: inherit; cursor: pointer;
   color: #EDEDF0; background: rgba(12, 13, 20, 0.72); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }
 .cand svg { width: 14px; height: 14px; }
 .cand:hover { background: rgba(12, 13, 20, 0.88); }
-.cand.on { display: inline-flex; color: #FFC53D; }
+:host(.hover) .cand, :host(:focus-within) .cand, .cand.on { opacity: 1; pointer-events: auto; }
+.cand.on { color: #FFC53D; }
 .cand.on svg { fill: #FFC53D; }
-:host(.hover) .cand { display: inline-flex; }
-.cand:focus-visible { display: inline-flex; outline: none; box-shadow: 0 0 0 2px #161722, 0 0 0 4px #25F4EE; }
-@media (prefers-reduced-motion: no-preference) { .cand { transition: background 120ms; } }
+@media (prefers-reduced-motion: no-preference) { .cand { transition: opacity 120ms, background 120ms; } }
 `;
   let cardSheet = null;
   function styleCard(root) {
@@ -71,17 +72,20 @@
     return a;
   }
 
-  // ctx：{ v（派生记录）, rank（名次或 0）, isCand, onToggleCand(id), onDetail(el, v, anchor), onLeave() }
+  // ctx：{ v（派生记录）, rank（名次或 0）, rankMuted（Top10 之外的名次）, dimReason（未达标原因）, isCand,
+  //        onToggleCand(id, btn), onDetail(v, anchor, pinned), onLeave(), onNav(id, dir) }
   function render(card, ctx) {
     const v = ctx.v;
     const a = ensureHost(card);
     const tier = M.crTier(v);
-    const sig = [v.id, tier, v.cr, ctx.rank, ctx.isCand].join('|');
+    const sig = [v.id, tier, v.cr, ctx.rank, ctx.rankMuted, ctx.dimReason, ctx.isCand].join('|');
     if (a.sig === sig && a.root.childNodes.length > 0) return;
+    // 重建前记住焦点在哪个按钮上，重建后放回去（键盘用户不丢位置）
+    const focused = a.root.activeElement ? a.root.activeElement.className.split(' ')[0] : '';
     a.sig = sig;
+    a.id = v.id;
     clear(a.root);
     const row = h('div', { class: 'row' });
-    if (ctx.rank) row.appendChild(h('span', { class: 'rank' + (ctx.rank <= 3 ? ' top' : ''), 'aria-label': '第 ' + ctx.rank + ' 名' }, String(ctx.rank)));
     const cand = h('button', {
       class: 'cand' + (ctx.isCand ? ' on' : ''), type: 'button',
       'aria-pressed': ctx.isCand ? 'true' : 'false',
@@ -89,24 +93,37 @@
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); ctx.onToggleCand(v.id, cand); },
     }, icon('star', 14), ctx.isCand ? '已加入' : '候选');
     row.appendChild(cand);
+    if (ctx.rank) row.appendChild(h('span', { class: 'rank' + (ctx.rank <= 3 && !ctx.rankMuted ? ' top' : ''), 'aria-hidden': 'true' }, String(ctx.rank)));
+    // 读屏念出完整信息：名次、收藏率、分档、是否达标
+    const label = (ctx.rank ? '第 ' + ctx.rank + ' 名，' : '') + (ctx.dimReason ? '未达标（' + ctx.dimReason + '），' : '') +
+      (tier === 'na' ? M.tierLabel(v) + '，收藏率不参与分档' : '收藏率 ' + U.fmtPct(v.cr) + '，' + M.CR_TIERS[tier].label) +
+      '。回车看详情' + (ctx.rank ? '，上下方向键按名次跳转' : '');
     const chip = h('button', {
-      class: 'chip ' + tier, type: 'button',
-      'aria-label': tier === 'na' ? '点赞不足 100，收藏率不参与分档' : '收藏率 ' + U.fmtPct(v.cr) + '，' + M.CR_TIERS[tier].label + '。按回车看详情',
+      class: 'chip ' + tier + (ctx.dimReason ? ' dim' : ''), type: 'button', 'aria-label': label,
       onclick: (e) => { e.preventDefault(); e.stopPropagation(); ctx.onDetail(v, chip, true); },
     });
     chip.appendChild(h('span', { class: 'dot' }));
-    if (tier === 'na') chip.appendChild(h('span', null, '样本少'));
+    if (tier === 'na') chip.appendChild(h('span', null, M.tierLabel(v)));
     else {
       chip.appendChild(h('span', { class: 'lbl' }, TIER_TEXT[tier]));
       chip.appendChild(h('span', { class: 'v' }, U.fmtPct(v.cr)));
     }
+    // 鼠标：悬停 400ms 出详情卡；键盘：聚焦不自动弹（避免抢焦点），回车才打开
     chip.addEventListener('pointerenter', () => ctx.onDetail(v, chip, false));
     chip.addEventListener('pointerleave', () => ctx.onLeave());
-    chip.addEventListener('focus', () => { if (chip.matches(':focus-visible')) ctx.onDetail(v, chip, true); });
-    chip.addEventListener('blur', () => ctx.onLeave());
+    chip.addEventListener('keydown', (e) => {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && ctx.onNav) { e.preventDefault(); e.stopPropagation(); ctx.onNav(v.id, e.key === 'ArrowDown' ? 1 : -1); }
+    });
     // 在 li 上的点击不会穿透到抖音（按钮已阻止冒泡），整卡点击仍交给抖音打开视频
     row.appendChild(chip);
     a.root.appendChild(row);
+    if (focused) { const f = a.root.querySelector('.' + focused); if (f) f.focus({ preventScroll: true }); }
+  }
+  // 聚焦某张卡的收藏率标签（键盘按名次跳转用）
+  function focusChip(el) {
+    const a = anns.get(el);
+    const chip = a && a.root.querySelector('.chip');
+    if (chip) { el.scrollIntoView({ block: 'nearest' }); chip.focus(); }
   }
 
   function removeAll() {
@@ -128,11 +145,10 @@
   const detail = { el: null, t: 0, hideT: 0, cur: null };
   function detailCard(layer, v, opts) {
     const tier = M.crTier(v);
-    const T = M.CR_TIERS[tier];
     const box = h('div', { class: 'dsp-detail', role: 'dialog', 'aria-label': '数据详情' });
     box.appendChild(h('div', { class: 'dd-head' },
       h('div', { class: 'dd-main c-' + tier }, tier === 'na' ? '—' : U.fmtPct(v.cr)),
-      h('span', { class: 'tier tier-' + tier }, T.label),
+      h('span', { class: 'tier tier-' + tier }, M.tierLabel(v)),
       h('span', { class: 'dd-dn' }, icon('clock', 12), v.dn ? M.fmtDn(v.dn) : '')));
     box.appendChild(h('div', { class: 'dd-formula' }, tier === 'na' && v.digg != null && v.digg < M.RATIO_MIN_DIGG
       ? '点赞不足 ' + M.RATIO_MIN_DIGG + '，收藏率波动太大，不参与分档'
@@ -165,43 +181,68 @@
       (v.capturedAt ? ' · ' + new Date(v.capturedAt * 1000).toTimeString().slice(0, 5) + ' 采集' : '')));
     return box;
   }
-  function showDetail(layer, v, anchor, opts, immediate) {
+  // pinned=true：点击或回车打开，"钉住"直到点外面、按 Esc、滚动或执行操作；焦点进卡内，关闭后还给标签
+  // pinned=false：鼠标悬停 400ms 打开，离开标签 400ms 后关闭（移进详情卡则保持）
+  function showDetail(layer, v, anchor, opts, pinned) {
     clearTimeout(detail.t);
     clearTimeout(detail.hideT);
+    if (!pinned && detail.pinned && detail.el) return; // 已钉住的卡不被悬停打断
     detail.t = setTimeout(() => {
       if (!anchor.isConnected) return;
-      hideDetail(true);
+      hideDetail(true, false);
       const box = detailCard(layer, v, opts);
       box.addEventListener('pointerenter', () => clearTimeout(detail.hideT));
-      box.addEventListener('pointerleave', () => scheduleHide());
+      box.addEventListener('pointerleave', () => { if (!detail.pinned) scheduleHide(); });
+      box.addEventListener('focusin', () => clearTimeout(detail.hideT));
+      box.addEventListener('focusout', (e) => {
+        const to = e.relatedTarget;
+        if (to && (box.contains(to) || to === anchor)) return;
+        // 焦点离开详情卡（Tab 出去），关掉但不抢回焦点
+        setTimeout(() => { if (detail.el === box && !box.contains(box.getRootNode().activeElement)) hideDetail(true, false); }, 0);
+      });
       layer.appendChild(box);
+      // 标签在卡片右上角：详情卡优先放卡片右侧，放不下放左侧；顶边与标签对齐
       const r = anchor.getBoundingClientRect();
       const card = (opts.cardEl || anchor).getBoundingClientRect();
       const w = box.offsetWidth, hh = box.offsetHeight;
-      let left = card.left - w - 12;
-      if (left < 8) left = card.right + 12;
-      if (left + w > window.innerWidth - 8) left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8));
-      let top = Math.min(Math.max(8, r.top - 8), window.innerHeight - hh - 8);
+      let left = card.right + 10;
+      if (left + w > window.innerWidth - 8) left = card.left - w - 10;
+      if (left < 8) left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8));
+      const top = Math.min(Math.max(8, r.top - 8), window.innerHeight - hh - 8);
       box.style.left = Math.round(left) + 'px';
       box.style.top = Math.round(top) + 'px';
       requestAnimationFrame(() => box.classList.add('dsp-in'));
       detail.el = box;
       detail.cur = v.id;
-      if (immediate && opts.focus) { const f = box.querySelector('[data-autofocus]'); if (f) f.focus({ preventScroll: true }); }
-    }, immediate ? 0 : 400);
+      detail.pinned = !!pinned;
+      detail.anchor = anchor;
+      if (pinned) { const f = box.querySelector('[data-autofocus]'); if (f) f.focus({ preventScroll: true }); }
+    }, pinned ? 0 : 400);
   }
   function scheduleHide() {
     clearTimeout(detail.t);
     clearTimeout(detail.hideT);
-    detail.hideT = setTimeout(() => hideDetail(), 220);
+    if (detail.pinned) return;
+    detail.hideT = setTimeout(() => hideDetail(), 400);
   }
-  function hideDetail(now) {
+  // restoreFocus：钉住的详情卡关闭时把焦点还给标签（Esc、执行操作）
+  function hideDetail(now, restoreFocus) {
     clearTimeout(detail.t);
-    if (detail.el) { detail.el.remove(); detail.el = null; detail.cur = null; }
     if (now) clearTimeout(detail.hideT);
+    if (!detail.el) return;
+    const anchor = detail.anchor, wasPinned = detail.pinned;
+    detail.el.remove();
+    detail.el = null; detail.cur = null; detail.pinned = false; detail.anchor = null;
+    if (restoreFocus && wasPinned && anchor && anchor.isConnected) anchor.focus({ preventScroll: true });
   }
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && detail.el) hideDetail(true); }, true);
-  window.addEventListener('scroll', () => { if (detail.el) hideDetail(true); }, { passive: true, capture: true });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && detail.el) { e.stopPropagation(); hideDetail(true, true); } }, true);
+  window.addEventListener('scroll', () => { if (detail.el) hideDetail(true, false); }, { passive: true, capture: true });
+  document.addEventListener('pointerdown', (e) => {
+    if (!detail.el || !detail.pinned) return;
+    const path = e.composedPath();
+    if (path.includes(detail.el) || path.includes(detail.anchor)) return;
+    hideDetail(true, false);
+  }, true);
 
   const DETAIL_CSS = `
 .dsp-detail { position: fixed; z-index: 35; width: 300px; padding: 16px; background: var(--s2); border-radius: var(--r-pop); box-shadow: var(--sh-pop);
@@ -236,5 +277,5 @@
 `;
   DSP.css = (DSP.css || '') + DETAIL_CSS;
 
-  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, detail };
+  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, focusChip, detail };
 })();

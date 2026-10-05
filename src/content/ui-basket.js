@@ -61,14 +61,15 @@
     box.appendChild(ul);
 
     // 预览：复制前先看一眼
-    const tabs = h('div', { class: 'bk-tabs', role: 'tablist' });
-    const pre = h('pre', { class: 'bk-pre', tabindex: '0', 'aria-label': '预览' });
+    const tabs = h('div', { class: 'bk-tabs', role: 'group', 'aria-label': '预览格式' });
+    const pre = h('pre', { class: 'bk-pre', tabindex: '0', 'aria-label': '预览：入库包' });
     const renderPre = () => {
       pre.textContent = st.tab === 'md' ? api.markdown() : E.toTsv(list).split('\n').map((r) => r.split('\t').slice(1, 8).join('  │  ')).join('\n');
-      for (const b of tabs.children) { const on = b.dataset.tab === st.tab; b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); }
+      pre.setAttribute('aria-label', '预览：' + (st.tab === 'md' ? '入库包' : '表格'));
+      for (const b of tabs.querySelectorAll('.bk-tab')) { const on = b.dataset.tab === st.tab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); }
     };
     for (const [k, label] of [['md', '入库包'], ['tsv', '表格']]) {
-      tabs.appendChild(h('button', { class: 'bk-tab', type: 'button', role: 'tab', 'data-tab': k, onclick: () => { st.tab = k; renderPre(); } }, label));
+      tabs.appendChild(h('button', { class: 'bk-tab', type: 'button', 'data-tab': k, onclick: () => { st.tab = k; renderPre(); } }, label));
     }
     tabs.appendChild(h('span', { class: 'bk-tab-hint' }, '复制前先看一眼'));
     box.append(tabs, pre);
@@ -113,11 +114,11 @@
 .bk-x { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--t3); opacity: 0; }
 .bk-item:hover .bk-x, .bk-x:focus-visible { opacity: 1; }
 .bk-x:hover { background: var(--line2); color: var(--t1); }
-.bk-ago { color: var(--t4); font-size: 11px; white-space: nowrap; }
+.bk-ago { color: var(--t3); font-size: 11px; white-space: nowrap; }
 .bk-tabs { display: flex; align-items: center; gap: 4px; padding: 8px 12px 6px; border-top: 1px solid var(--line); }
 .bk-tab { height: 28px; padding: 0 10px; border-radius: 8px; color: var(--t2); }
 .bk-tab.on { background: var(--s3); color: var(--t1); font-weight: 600; }
-.bk-tab-hint { margin-left: auto; color: var(--t4); font-size: 12px; }
+.bk-tab-hint { margin-left: auto; color: var(--t3); font-size: 12px; }
 .bk-pre { margin: 0 12px; padding: 10px 12px; height: 132px; overflow: auto; border-radius: 10px; background: var(--bg); color: var(--t2);
   font: 11.5px/18px ui-monospace, "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace; white-space: pre-wrap; word-break: break-all; }
 .bk-actions { padding: 12px; display: flex; flex-direction: column; gap: 8px; }

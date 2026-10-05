@@ -10,7 +10,7 @@ const rec = (id, o) => Object.assign({ id: String(id), kind: 'video', digg: 100,
 
 test('路由解析与关键词规范化', () => {
   assert.deepEqual(St.routeOf(loc('/search/AI%20%E6%95%99%E7%A8%8B', '?type=video')), { type: 'search', kw: 'AI 教程', modalId: '' });
-  assert.equal(St.routeOf(loc('/search/AI+%E6%95%99%E7%A8%8B')).kw, 'AI 教程');
+  assert.equal(St.routeOf(loc('/search/AI+%E6%95%99%E7%A8%8B')).kw, 'AI+教程'); // 路径里的 + 就是加号
   assert.equal(St.routeOf(loc('/user/MS4w_x', '?modal_id=7400000000000000001')).modalId, '7400000000000000001');
   assert.equal(St.routeOf(loc('/video/7400000000000000001')).type, 'video');
   assert.equal(St.routeOf(loc('/jingxuan')).type, 'other');
@@ -98,4 +98,24 @@ test('评论：按视频归属，换视频清空', () => {
   St.setRoute(St.routeOf(loc('/video/7400000000000000002')));
   St.intakeComments({ awemeId: '7400000000000000002', items: [{ cid: '3', digg: 1 }] });
   assert.equal(St.S.comments.map.size, 1);
+});
+
+test('关键词含加号（AI+办公、C++）时数据照常收下', () => {
+  St.setRoute(St.routeOf(loc('/search/AI%2B%E5%8A%9E%E5%85%AC')));
+  assert.equal(St.S.route.kw, 'AI+办公');
+  assert.equal(St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'AI+办公', filter: '', offset: 0 }, [rec(1)]), 1);
+  assert.equal(St.intakeVideos({ source: 'fiber', path: '/search/AI%2B%E5%8A%9E%E5%85%AC', kw: 'AI+办公', filter: '' }, [rec(2)]), 1);
+  St.setRoute(St.routeOf(loc('/search/C%2B%2B')));
+  assert.equal(St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'C++', offset: 0 }, [rec(3)]), 1);
+});
+
+test('切官方筛选后，旧筛选晚到的翻页响应被丢弃、不把会话切回去', () => {
+  St.setRoute(St.routeOf(loc('/search/late')));
+  St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'late', filter: '{"publish_time":"180"}', offset: 0 }, [rec(1)]);
+  const s = St.S.session;
+  assert.equal(St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'late', filter: '', offset: 20 }, [rec(2)]), 0);
+  assert.equal(St.S.session, s);
+  // 第一页（offset=0）的响应可以切会话（用户真的清掉了筛选）
+  assert.equal(St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'late', filter: '', offset: 0 }, [rec(3)]), 1);
+  assert.notEqual(St.S.session, s);
 });

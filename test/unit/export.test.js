@@ -89,7 +89,7 @@ test('缺失的计数导出为空，不当成 0', () => {
   const col = (name) => row[E.COLUMNS.findIndex((c) => c[0] === name)];
   assert.equal(col('收藏'), '');
   assert.equal(col('收藏率'), '');
-  assert.equal(col('收藏率分档'), '样本少');
+  assert.equal(col('收藏率分档'), '缺数据'); // 点赞够多、只是收藏缺失：不是样本少
   assert.equal(JSON.parse(E.toJson([nv])).items[0].收藏率, null);
 });
 

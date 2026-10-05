@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
 const { launch, urls } = require('../test/sim/launch');
+const { saveWebp } = require('./webp');
 
 const OUT = path.resolve(process.argv[2] || path.join(__dirname, '..', 'docs', 'screenshots'));
 const ONLY = process.argv[3] || '';
@@ -25,8 +26,8 @@ async function ready(page) {
   await page.waitForTimeout(1600);
 }
 async function shot(page, name) {
-  const file = path.join(OUT, name + '.png');
-  await page.screenshot({ path: file });
+  const file = path.join(OUT, name + '.webp');
+  await saveWebp(page, file);
   console.log('✓', path.relative(process.cwd(), file));
 }
 

@@ -15,7 +15,7 @@
     root: null, layer: null,      // 固定层
     dock: null, bar: null,        // 工具栏
     cbar: null, cb: null,         // 评论工具条
-    launcher: null, coach: null,
+    launcher: null, guide: null,
     listEl: null, strategy: '',
     routeAt: Date.now(),
     combo: false,
@@ -76,6 +76,7 @@
       try { document.documentElement.dataset.dspOff = '1'; } catch (e) { /* 忽略 */ }
     } else {
       ui.paused = false;
+      ui.commentSig = '';
       delete document.documentElement.dataset.dspOff;
       if (DSP.requestRescan) DSP.requestRescan();
     }
@@ -90,7 +91,7 @@
     if (ui.dock) { ui.dock.el.remove(); ui.dock = null; ui.bar = null; }
     if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
     if (ui.observer) { ui.observer.disconnect(); ui.observed = null; }
-    hideCoach();
+    ui.guide = null;
   }
   function setEnabled(on) {
     store.saveSettings({ enabled: on });
@@ -101,7 +102,8 @@
   const isProfile = () => S.route.type === 'profile';
   const capFor = () => (isProfile() ? Math.min(600, (S.settings.loadCap || 100) * 3) : (S.settings.loadCap || 100));
   const listLoader = L.create({
-    count: () => (isProfile() && ui.listEl ? A.cardsOf(ui.listEl).length : S.videos.size),
+    // 以页面上实际的卡片数为准（回到搜过的关键词时，缓存里的旧数据不算"已加载"）
+    count: () => (ui.listEl ? A.cardsOf(ui.listEl).length : S.videos.size),
     cap: capFor,
     blocked: () => A.blockingReason(),
     hasMore: () => { const m = DSP.meta[isProfile() ? 'profile' : 'search']; return m ? m.hasMore : undefined; },
@@ -113,16 +115,18 @@
     cap: () => 500,
     blocked: () => A.blockingReason(),
     hasMore: () => (DSP.meta.comments ? DSP.meta.comments.hasMore : undefined),
-    scroll: () => { const list = A.commentList(); const sc = list && A.scrollerOf(list); if (sc) sc.scrollTop = sc.scrollHeight; else window.scrollTo(0, document.documentElement.scrollHeight); },
+    // 评论区没了（例如关掉了视频弹层）就停，绝不退回去滚动整个页面
+    scroll: () => { const list = A.commentList(); const sc = list && A.scrollerOf(list); if (sc) sc.scrollTop = sc.scrollHeight; else if (list) list.lastElementChild && list.lastElementChild.scrollIntoView({ block: 'end' }); else commentLoader.stop('route'); },
     onChange: (st) => { schedule(); if (!st.running && st.reason && st.reason !== 'route') announce(st.reason === 'end' || st.reason === 'cap' ? '评论读完了，共 ' + A.commentRows().length + ' 条' : st.message(), st.reason === 'login' || st.reason === 'captcha' ? 'warn' : ''); },
     delay: [1200, 2600],
   });
   function stopLoaders(reason) { listLoader.stop(reason); commentLoader.stop(reason); }
 
   // ---------------- 提示 ----------------
+  // 轻提示统一在视口底部，不盖住结果第一行
   function announce(msg, tone, action) {
     if (!msg) return;
-    toast(ui.layer, msg, { tone, action, anchor: ui.bar && ui.dock && ui.dock.el.isConnected && inView(ui.dock.el) ? ui.bar.bar : null });
+    toast(ui.layer, msg, { tone, action });
   }
   const inView = (el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; };
 
@@ -137,7 +141,7 @@
     else { removeDock(); }
     updateComments();
     renderLauncher(listState && !listState.docked ? listState.health : null);
-    maybeCoach(listState);
+    renderGuide(listState && listState.health);
   }
 
   function removeDock() {
@@ -162,14 +166,21 @@
     const cards = located ? A.cardsOf(located.el) : [];
     const blocked = A.blockingReason();
     const health = P.health({ type, count: S.videos.size, located: !!(located && cards.length), sinceRouteMs: Date.now() - ui.routeAt, blocked: listLoader.running ? null : blocked });
-    // 主页以页面上实际显示的作品为准；搜索页用整个会话（列表可能有虚拟滚动）
-    const ids = type === 'profile' && cards.length ? cards.map((c) => c.id) : null;
+    // 以页面上实际显示的卡片为准（原地重排只能排页面上有的卡片；会话里更早的数据只用于导出）
+    const ids = cards.length ? cards.map((c) => c.id) : null;
     const view = store.viewOf(ids);
     const d = store.derived();
     const base = ids ? ids.map((id) => d.byId.get(id)).filter(Boolean) : d.list;
     const tiers = P.tierCounts(base);
     const sorted = S.view.sortKeys.length > 0;
     const active = S.view.active;
+    const lens = P.matchLens(S.view);
+    // 账号 Top10：第 11 名以后照样排序，但名次变灰、卡片变暗，不和前 10 混在一起
+    const topN = lens && lens.key === 'top10' ? 10 : 0;
+    const orderIds = view.sorted.map((x) => x.v.id);
+    const dimIds = new Set(view.rest.map((v) => v.id));
+    if (topN) orderIds.slice(topN).forEach((id) => dimIds.add(id));
+    ui.orderIds = orderIds;
 
     // 工具栏挂载：列表的前一个兄弟节点；找不到列表时不挂（交给启动器显示状态）
     let docked = false;
@@ -183,7 +194,10 @@
       // 顶栏高度和深浅色很少变：由看门狗每秒测一次，这里只用缓存值
       if (ui.headerTop == null) ui.headerTop = A.headerBottom();
       if (!ui.theme) ui.theme = A.pageTheme();
-      const top = (ui.headerTop + 8) + 'px';
+      // 吸顶位置紧贴抖音顶栏；8px 间距由宿主自己的实色内边距提供，滚动时卡片不会从缝里露出来
+      const top = ui.headerTop + 'px';
+      const bg = ui.theme === 'light' ? '#ffffff' : '#161722';
+      if (ui.dock.el.style.getPropertyValue('--dsp-page-bg') !== bg) ui.dock.el.style.setProperty('--dsp-page-bg', bg);
       if (ui.dock.el.style.top !== top) ui.dock.el.style.top = top;
       if (ui.dock.el.dataset.theme !== ui.theme) ui.dock.el.dataset.theme = ui.theme;
       docked = true;
@@ -194,7 +208,7 @@
 
     // 原地重排 / 还原
     if (located && cards.length && active && IP.supports(located.el, cards)) {
-      IP.apply(located.el, cards, { order: view.sorted.map((x) => x.v.id), dim: new Set(view.rest.map((v) => v.id)) });
+      IP.apply(located.el, cards, { order: orderIds, dim: dimIds });
     } else if (IP.S.applied && (!active || !located)) {
       IP.restore();
     }
@@ -202,21 +216,31 @@
     // 卡片角标
     if (located && S.settings.badges) {
       const rank = new Map();
-      if (sorted) view.sorted.forEach((x, i) => rank.set(x.v.id, i + 1));
+      if (sorted) orderIds.forEach((id, i) => rank.set(id, i + 1));
       const likes = type === 'profile' ? (S.profileStats || (S.profileStats = A.profileStats())) : null;
+      const byEl = new Map(cards.map((c) => [c.id, c.el]));
       for (const card of cards) {
         const v = d.byId.get(card.id);
         if (!v) continue;
+        const r = rank.get(card.id) || 0;
         C.render(card, {
-          v, rank: rank.get(card.id) || 0, isCand: S.candidates.has(card.id),
+          v, rank: r, rankMuted: !!(topN && r > topN), isCand: S.candidates.has(card.id),
+          dimReason: active && dimIds.has(card.id) ? (topN && r > topN ? 'Top10 之外' : M.failReason(v, S.view.filter)) : '',
           onToggleCand: (id, btn) => toggleCandidate(id, btn),
-          onDetail: (vv, anchor, immediate) => C.showDetail(ui.layer, vv, anchor, {
-            isCand: S.candidates.has(vv.id), cardEl: card.el, focus: immediate,
+          onDetail: (vv, anchor, pinned) => C.showDetail(ui.layer, vv, anchor, {
+            isCand: S.candidates.has(vv.id), cardEl: card.el,
             share: likes && likes.likes ? vv.digg / likes.likes : null,
-            onToggleCand: (id, b) => { toggleCandidate(id, b); C.hideDetail(true); },
-            onCopyLink: (x) => copy(E.videoUrl(x), '链接已复制'),
-          }, immediate),
+            onToggleCand: (id, b) => { toggleCandidate(id, b); C.hideDetail(true, true); },
+            onCopyLink: (x) => { copy(E.videoUrl(x), '链接已复制'); C.hideDetail(true, true); },
+          }, pinned),
           onLeave: () => C.scheduleHide(),
+          // 键盘：在收藏率标签上按 ↑↓ 按名次跳到上一张/下一张
+          onNav: (id, dir) => {
+            const list = sorted ? orderIds : cards.map((c) => c.id);
+            const i = list.indexOf(id);
+            const next = list[i + dir];
+            if (next && byEl.get(next)) C.focusChip(byEl.get(next));
+          },
         });
       }
       C.prune();
@@ -226,9 +250,8 @@
 
     // 工具栏内容
     if (ui.bar) {
-      const lens = P.matchLens(S.view);
-      const passCount = active ? view.sorted.length : base.length;
-      // 选题看法自带的条件（例如真需求 = 收藏率≥80% + 只看视频）不算"用户设的门槛"，门槛按钮只数额外加的
+      const passCount = active ? Math.min(view.sorted.length, topN || Infinity) : base.length;
+      // 选题看法自带的条件（例如真需求 = 收藏率≥80% + 只看视频）不算"用户设的达标线"，按钮只数额外加的
       const filterCount = Math.max(0, M.activeFilterCount(S.view.filter) - (lens && lens.filter ? M.activeFilterCount(lens.filter) : 0));
       const vm = {
         type, health, blocked, count: ids ? base.length : S.videos.size,
@@ -242,10 +265,11 @@
       };
       vm.status = P.statusLine({
         health, blocked, count: vm.count, strongNeed: tiers.high, sorted: active,
-        sortText: lens ? '按「' + lens.label + '」排序' : sorted ? P.sortText(S.view.sortKeys, S.view.asc) : '门槛：' + P.filterText(S.view.filter),
+        sortText: lens ? '按「' + lens.label + '」排序' : sorted ? P.sortText(S.view.sortKeys, S.view.asc) : '达标线：' + P.filterText(S.view.filter),
         shown: passCount, loading: vm.loading, cap: vm.cap,
       });
-      if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果达到门槛', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
+      if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果过达标线', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
+      if (topN && view.sorted.length > topN) vm.status.push({ t: '另有 ' + (view.sorted.length - topN) + ' 条在 Top10 之外', tone: 'dim' });
       T.renderBar(ui.bar, vm);
       ui.vm = Object.assign(vm, { passCount, view, base, lens });
     }
@@ -299,7 +323,8 @@
     const rows = A.commentRows(list);
     if (CE.state.mode || CE.state.highlight) {
       const sig = rows.length + '|' + S.comments.version + '|' + CE.state.mode + '|' + CE.state.highlight;
-      if (sig !== ui.commentSig) { ui.commentSig = sig; ui.commentHits = CE.apply().hits || 0; }
+      // 签名没变但评论区被还原过（暂停后恢复、列表重新挂载），也要重新应用
+      if (sig !== ui.commentSig || !CE.state.applied || CE.state.list !== list) { ui.commentSig = sig; ui.commentHits = CE.apply().hits || 0; }
     }
     const all = [...S.comments.map.values()];
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
@@ -312,18 +337,33 @@
     }, commentApi);
   }
 
+  // 高亮命中的评论行，按视觉顺序（CSS order，其次 DOM 顺序）
+  function hitRows() {
+    return [...document.querySelectorAll('.dsp-c-hit')].sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0) || (a.compareDocumentPosition(b) & 4 ? -1 : 1));
+  }
+  function focusHit(i) {
+    const el = hitRows()[i];
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: kit.reducedMotion() ? 'auto' : 'smooth' });
+    el.classList.remove('dsp-c-focus'); void el.offsetWidth; el.classList.add('dsp-c-focus');
+  }
+
   const commentApi = {
     layer: () => ui.layer,
     setMode: (m) => { CE.setMode(m); ui.commentSig = ''; schedule(); },
-    setHighlight: (k) => { CE.setHighlight(CE.state.highlight === k ? null : k); ui.commentSig = ''; ui.commentCursor = 0; schedule(); },
+    // 点一格：高亮命中的评论，并把第 1 条滚到视野中间闪一下（"1/N"名副其实）
+    setHighlight: (k) => {
+      CE.setHighlight(CE.state.highlight === k ? null : k);
+      ui.commentSig = ''; ui.commentCursor = 0;
+      update();
+      if (CE.state.highlight) focusHit(0);
+    },
     toggleLoad: () => { if (commentLoader.running) commentLoader.stop('user'); else commentLoader.start(); },
     jump: (dir) => {
-      const hits = [...document.querySelectorAll('.dsp-c-hit')].sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0) || (a.compareDocumentPosition(b) & 4 ? -1 : 1));
-      if (!hits.length) return;
-      ui.commentCursor = (ui.commentCursor + dir + hits.length) % hits.length;
-      const el = hits[ui.commentCursor];
-      el.scrollIntoView({ block: 'center', behavior: kit.reducedMotion() ? 'auto' : 'smooth' });
-      el.classList.remove('dsp-c-focus'); void el.offsetWidth; el.classList.add('dsp-c-focus');
+      const n = hitRows().length;
+      if (!n) return;
+      ui.commentCursor = (ui.commentCursor + dir + n) % n;
+      focusHit(ui.commentCursor);
       schedule();
     },
     copyHits: (btn) => {
@@ -332,8 +372,8 @@
       copy(E.commentsText(list), '已复制 ' + list.length + ' 条原评论（一字未改）', btn);
     },
     openMore: (anchor) => {
-      const item = (ic, label, run) => h('button', { class: 'mi', type: 'button', role: 'menuitem', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label));
-      const panel = h('div', { class: 'pop-more', role: 'menu' },
+      const item = (ic, label, run) => h('button', { class: 'mi', type: 'button', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label));
+      const panel = h('div', { class: 'pop-more' },
         item('copy', '复制前 20 条原评论（按当前排序）', () => { const l = CE.collected().slice(0, 20); copy(E.commentsText(l), '已复制 ' + l.length + ' 条原评论'); }),
         item('download', '下载全部评论 CSV', () => {
           const l = CE.collected();
@@ -342,7 +382,7 @@
           announce('已下载 ' + l.length + ' 条评论（不含昵称和 IP 属地）');
         }),
         h('div', { class: 'mi-foot' }, '导出默认不含评论者昵称和 IP 属地'));
-      popover(anchor, panel, { layer: ui.layer, role: 'menu', label: '评论导出', placement: 'below-end' });
+      popover(anchor, panel, { layer: ui.layer, label: '复制或导出评论', placement: 'below-end' });
     },
   };
 
@@ -372,6 +412,7 @@
       const l = P.LENSES.find((x) => x.key === key);
       if (!l) return;
       ui.combo = l.sort.length > 1;
+      guideDone(); // 已经会用排序看法了，引导不再出现
       store.setFilter(l.filter || {});
       store.setSort(l.sort, false);
       announce('已按「' + l.label + '」排好：' + l.desc);
@@ -400,7 +441,8 @@
       else copy(E.toTsv(list), '已复制 ' + list.length + ' 条，可以直接粘贴到飞书或 Excel');
     },
     toggleBadges: () => { store.saveSettings({ badges: !S.settings.badges }); },
-    showGuide: () => { store.saveSettings({ guideDone: false }); ui.coachShown = false; schedule(); },
+    showGuide: () => { store.saveSettings({ guideDone: false }); if (ui.guide) { ui.guide.remove(); ui.guide = null; } schedule(); },
+    toggleCustom: () => { ui.customOpen = !ui.customOpen; reopen(); },
     pause: () => {
       setEnabled(false);
       announce('插件已暂停，抖音页面已还原', '', { label: '撤销', run: () => setEnabled(true) });
@@ -410,7 +452,6 @@
   function openPanel(kind, anchor) {
     if (ui.pop && ui.pop.kind === kind && isOpen(ui.pop.panel)) { closePop(true); ui.pop = null; return; }
     C.hideDetail(true);
-    if (ui.coach) { store.saveSettings({ guideDone: true }); hideCoach(); } // 已经开始用了，引导收起
     const vm = popVm();
     let panel, opts = { layer: ui.layer, onClose: () => { if (ui.pop && ui.pop.panel === panel) ui.pop = null; } };
     if (kind === 'sort') { panel = T.sortPanel(vm, barApi); opts.label = '排序'; }
@@ -421,22 +462,41 @@
     popover(anchor, panel, opts);
     ui.pop = { kind, anchor, panel };
   }
+  // 面板内容变化后重画；焦点放回刚才操作的那个控件（键盘用户不用每次从头 Tab）
   function reopen() {
     if (!ui.pop) return;
     const { kind, anchor, panel } = ui.pop;
     const scroll = panel.scrollTop;
+    const act = panel.getRootNode().activeElement;
+    let key = null, bkIndex = -1;
+    if (act && panel.contains(act)) {
+      for (const a of ['data-quick', 'data-metric', 'data-lens', 'data-dir', 'data-tab', 'data-dsp', 'data-min']) {
+        if (act.hasAttribute(a)) { key = '[' + a + '="' + act.getAttribute(a) + '"]'; break; }
+      }
+      if (!key && act.classList.contains('sw')) key = '.sw';
+      if (!key && act.classList.contains('bk-x')) bkIndex = [...panel.querySelectorAll('.bk-x')].indexOf(act);
+    }
     closePop(false);
     ui.pop = null;
     update();
     openPanel(kind, anchor);
-    if (ui.pop) ui.pop.panel.scrollTop = scroll;
+    if (!ui.pop) return;
+    const np = ui.pop.panel;
+    np.scrollTop = scroll;
+    if (key || bkIndex >= 0) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        let el = key ? np.querySelector(key) : null;
+        if (!el && bkIndex >= 0) { const xs = np.querySelectorAll('.bk-x'); el = xs[Math.min(bkIndex, xs.length - 1)] || np.querySelector('[data-dsp="copy-md"]'); }
+        if (el) el.focus({ preventScroll: true });
+      }));
+    }
   }
   function popVm() {
     const v = ui.vm || {};
     return {
       type: S.route.type, lens: v.lens ? v.lens.key : '', sortKeys: S.view.sortKeys, asc: S.view.asc, combo: ui.combo,
       filter: S.view.filter, passCount: v.passCount || 0, count: v.count || 0, badges: S.settings.badges,
-      lowSample: (v.tiers && v.tiers.na) || 0,
+      lowSample: (v.tiers && v.tiers.na) || 0, customOpen: !!ui.customOpen,
     };
   }
 
@@ -482,28 +542,26 @@
   }
 
   // ---------------- 首次引导 ----------------
-  function maybeCoach(listState) {
-    if (S.settings.guideDone || ui.coachShown || !ui.bar || !listState || listState.health !== 'ok' || !inView(ui.dock.el)) return;
-    ui.coachShown = true;
-    const r = ui.bar.bar.getBoundingClientRect();
-    const steps = [
-      ['继续加载', '抖音一次只给 20 条，先多读一些，排名才靠谱'],
-      ['排序 → 真需求', '收藏率 ≥ 80% 的视频按收藏数排好，一眼看到值得做的'],
-      ['☆ 候选 → 复制入库包', '在卡片右上角加入候选，攒好后一键复制给 Agent'],
-    ];
-    const box = h('div', { class: 'coach', role: 'dialog', 'aria-label': '三步上手' },
-      h('div', { class: 'coach-h' }, kit.logo(18), h('b', null, '三步上手')),
-      h('ol', null, ...steps.map(([a, b]) => h('li', null, h('b', null, a), h('span', null, b)))),
-      h('div', { class: 'coach-f' }, h('span', null, '随时可以在「⋯」里重看'),
-        h('button', { class: 'btn primary', type: 'button', 'data-autofocus': '', onclick: () => { store.saveSettings({ guideDone: true }); hideCoach(); } }, '知道了')));
-    box.style.left = Math.max(8, Math.round(r.right - 340)) + 'px';
-    box.style.top = Math.round(r.bottom + 10) + 'px';
-    ui.layer.appendChild(box);
-    ui.coach = box;
-    requestAnimationFrame(() => box.classList.add('dsp-in'));
+  // 工具栏下方的一条横条（在页面流里，不浮在卡片和弹层上）；点"知道了"或第一次用排序看法后不再出现
+  function renderGuide(health) {
+    const want = !S.settings.guideDone && health === 'ok' && ui.bar;
+    const lay = ui.dock && ui.dock.root.querySelector('.dsp-layer');
+    if (!want || !lay) { if (ui.guide) { ui.guide.remove(); ui.guide = null; } return; }
+    if (ui.guide && ui.guide.isConnected) return;
+    const step = (n, a, b) => h('li', null, h('i', null, String(n)), h('b', null, a), h('span', null, b));
+    ui.guide = h('div', { class: 'guide', role: 'note', 'aria-label': '三步上手' },
+      h('span', { class: 'guide-h' }, '三步上手'),
+      h('ol', null,
+        step(1, '继续加载', '先多读一些，排名才靠谱'),
+        step(2, '排序 → 真需求', '收藏率 ≥80% 的视频按收藏数排好'),
+        step(3, '☆ 候选 → 复制入库包', '攒好后一次性给 Agent')),
+      h('button', { class: 'btn sm', type: 'button', 'data-dsp': 'guide-ok', onclick: () => guideDone() }, '知道了'));
+    lay.appendChild(ui.guide);
   }
-  function hideCoach() { if (ui.coach) { ui.coach.remove(); ui.coach = null; } }
-  window.addEventListener('scroll', () => { if (ui.coach) { store.saveSettings({ guideDone: true }); hideCoach(); } }, { passive: true });
+  function guideDone() {
+    if (!S.settings.guideDone) store.saveSettings({ guideDone: true });
+    if (ui.guide) { ui.guide.remove(); ui.guide = null; }
+  }
 
   // 测试用状态
   ui.health = () => ui.lastHealth || 'ok';
@@ -525,19 +583,16 @@
 .l-paused { opacity: .85; }
 .l-paused .dsp-logo { filter: grayscale(1); opacity: .6; }
 .l-recognizing .l-tx b { color: var(--t3); }
-.coach { position: fixed; z-index: 45; width: 330px; padding: 14px 16px 12px; border-radius: 16px; background: var(--s2); box-shadow: var(--sh-pop);
-  opacity: 0; transform: translateY(6px); transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
-.coach.dsp-in { opacity: 1; transform: none; }
-.coach-h { display: flex; align-items: center; gap: 8px; }
-.coach-h b { font: 600 14px/22px var(--font); }
-.coach ol { margin: 10px 0 0; padding: 0; list-style: none; counter-reset: s; }
-.coach li { counter-increment: s; position: relative; padding: 6px 0 6px 30px; display: flex; flex-direction: column; }
-.coach li::before { content: counter(s); position: absolute; left: 0; top: 7px; width: 20px; height: 20px; border-radius: 50%; background: var(--red-solid); color: #fff; font: 600 11px/20px var(--font); text-align: center; }
-.coach li b { font-weight: 600; }
-.coach li span { color: var(--t2); font-size: 12px; line-height: 18px; }
-.coach-f { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--t3); font-size: 12px; }
-.coach-f .btn { height: 32px; }
-@media (prefers-reduced-motion: reduce) { .coach { transform: none !important; transition: opacity 80ms linear; } }
+.guide { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px/20px var(--font); color: var(--t1); }
+:host([data-theme="light"]) .guide { background: var(--s2); }
+.guide-h { font-weight: 600; color: var(--red-text); white-space: nowrap; }
+.guide ol { display: flex; gap: 18px; margin: 0; padding: 0; list-style: none; flex: 1; min-width: 0; overflow: hidden; }
+.guide li { display: flex; align-items: center; gap: 6px; white-space: nowrap; min-width: 0; }
+.guide li i { width: 18px; height: 18px; border-radius: 50%; background: var(--red-solid); color: #fff; font: 600 11px/18px var(--font); font-style: normal; text-align: center; flex: none; }
+.guide li b { font-weight: 600; }
+.guide li span { color: var(--t3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.guide .btn.sm { height: 28px; padding: 0 12px; box-shadow: inset 0 0 0 1px var(--line2); }
 `;
   DSP.css = (DSP.css || '') + CSS;
 })();

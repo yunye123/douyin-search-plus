@@ -10,14 +10,14 @@
     const els = {};
     const box = h('div', { class: 'cbar', role: 'region', 'aria-label': '评论区工具' });
     const top = h('div', { class: 'cb-top' });
-    els.seg = h('div', { class: 'seg-ctl', role: 'radiogroup', 'aria-label': '评论排序' });
+    els.seg = h('div', { class: 'seg-ctl', role: 'group', 'aria-label': '评论排序' });
     for (const [k, label, tip] of [['', '默认', '抖音原本的顺序'], ['digg', '按赞', '点赞多的在前：大家最认同的说法'], ['replies', '按回复', '回复多的在前：卡点和争议通常在这里（选题 SOP 推荐）']]) {
-      const b = h('button', { type: 'button', role: 'radio', 'data-cmode': k || 'none', onclick: () => api.setMode(k || null) }, label);
+      const b = h('button', { type: 'button', 'data-cmode': k || 'none', onclick: () => api.setMode(k || null) }, label);
       bindTip(b, () => ({ title: label, body: tip }), api.layer());
       els.seg.appendChild(b);
     }
     els.load = h('button', { class: 'btn sm', type: 'button', 'data-dsp': 'c-load', onclick: () => api.toggleLoad() }, icon('down', 14), els.loadText = h('span', null, '加载全部'));
-    els.more = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': '复制或导出评论', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onclick: () => api.openMore(els.more) }, icon('more', 16));
+    els.more = h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': '复制或导出评论', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => api.openMore(els.more) }, icon('more', 16));
     top.append(els.seg, h('span', { class: 'grow' }), els.load, els.more);
     box.appendChild(top);
 
@@ -43,9 +43,10 @@
     for (const b of els.seg.children) {
       const on = (b.dataset.cmode === 'none' && !vm.mode) || b.dataset.cmode === vm.mode;
       b.classList.toggle('on', on);
-      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
-    els.count.textContent = vm.total ? '已读 ' + vm.loaded + ' / 共 ' + vm.total + ' 条' : '已读 ' + vm.loaded + ' 条';
+    const countText = vm.total ? '已读 ' + vm.loaded + ' / 共 ' + vm.total + ' 条' : '已读 ' + vm.loaded + ' 条';
+    if (els.count.textContent !== countText) els.count.textContent = countText;
     els.loadText.textContent = vm.loading ? '停止' : vm.done ? '已读完' : '加载全部';
     els.load.disabled = !vm.loading && vm.done;
     els.load.classList.toggle('on', vm.loading);
@@ -60,6 +61,11 @@
       tile.classList.toggle('zero', !stats[k]);
       tile.setAttribute('aria-pressed', vm.highlight === k ? 'true' : 'false');
     }
+    // 高亮条只在内容变化时重建（每秒重建会把键盘焦点从"下一条"按钮上弄丢）
+    const hlSig = (vm.highlight || '') + '|' + vm.hits + '|' + vm.cursor;
+    if (t.hlSig === hlSig) return;
+    t.hlSig = hlSig;
+    const focusedCls = (() => { const a = els.hl.getRootNode().activeElement; return a && els.hl.contains(a) ? (a.getAttribute('aria-label') || a.textContent) : ''; })();
     clear(els.hl);
     els.hl.hidden = !vm.highlight;
     if (vm.highlight) {
@@ -71,6 +77,7 @@
         vm.hits ? h('span', { class: 'cb-pos' }, (vm.cursor + 1) + '/' + vm.hits) : null,
         h('span', { class: 'grow' }),
         vm.hits ? h('button', { class: 'link', type: 'button', onclick: (e) => api.copyHits(e.currentTarget) }, icon('copy', 14), '复制这 ' + vm.hits + ' 条') : null);
+      if (focusedCls) { const f = [...els.hl.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || b.textContent) === focusedCls); if (f) f.focus({ preventScroll: true }); }
     }
   }
 
@@ -84,7 +91,7 @@
 .btn.sm.on { background: var(--red-soft); color: var(--red-text); box-shadow: inset 0 0 0 1px var(--red-line); }
 .icon-btn.xs { width: 24px; height: 24px; border-radius: 6px; }
 .cb-h { display: flex; justify-content: space-between; align-items: baseline; margin: 10px 2px 6px; color: var(--t3); font: 600 12px/18px var(--font); }
-.cb-note { font-weight: 400; color: var(--t4); }
+.cb-note { font-weight: 400; color: var(--t3); }
 .cb-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .cb-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 52px; border-radius: 10px; background: var(--s2); color: var(--t2); font-size: 12px; line-height: 16px; transition: background 120ms; }
 :host([data-theme="light"]) .cb-tile { background: var(--s1); box-shadow: inset 0 0 0 1px var(--line); }
@@ -92,7 +99,7 @@
 .cb-n { font: 700 18px/22px var(--font); color: var(--t1); }
 .cb-tile[data-barrier="cost"]:not(.zero) .cb-n, .cb-tile[data-barrier="access"]:not(.zero) .cb-n, .cb-tile[data-barrier="hard"]:not(.zero) .cb-n, .cb-tile[data-barrier="english"]:not(.zero) .cb-n { color: var(--tier-low-text); }
 .cb-tile[data-barrier="ask"]:not(.zero) .cb-n { color: var(--cyan-text); }
-.cb-tile.zero { opacity: .55; }
+.cb-tile.zero .cb-n { color: var(--t3); }
 .cb-tile.on { background: var(--tier-low-soft); box-shadow: inset 0 0 0 1.5px var(--tier-low); opacity: 1; }
 .cb-tile[data-barrier="ask"].on { background: var(--cyan-soft); box-shadow: inset 0 0 0 1.5px var(--cyan); }
 .cb-hl { display: flex; align-items: center; gap: 4px; margin-top: 8px; padding: 4px 4px 4px 10px; border-radius: 10px; background: var(--s2); color: var(--t2); font-size: 12px; }

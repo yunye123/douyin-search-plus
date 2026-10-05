@@ -37,7 +37,7 @@
     ['收藏', (v) => v.collect],
     ['转发', (v) => v.share],
     ['收藏率', (v) => pct1(v.cr)],
-    ['收藏率分档', (v) => M.CR_TIERS[M.crTier(v)].label],
+    ['收藏率分档', (v) => M.tierLabel(v)],
     ['转发率', (v) => pct1(v.sr)],
     ['评论率', (v) => pct1(v.er)],
     ['采集时间', (v) => fmtTime(v.capturedAt)],
@@ -73,10 +73,9 @@
     const lines = [];
     lines.push('# 选题候选 · ' + list.length + ' 条');
     const src = meta.source ? '来源：' + meta.source + ' · ' : '';
-    lines.push('> ' + src + '采集于 ' + fmtTime(meta.now || (list[0] && list[0].capturedAt)) + ' · 数据由 DouyinSearchPlus 导出');
+    lines.push('> ' + src + '导出于 ' + fmtTime(meta.now || (list[0] && list[0].capturedAt)) + ' · 数据由 DouyinSearchPlus 导出，每条的采集时间见条目');
     lines.push('> 口径：收藏率 = 收藏 ÷ 点赞；D+N = 采集时距发布的天数（比率要连窗口一起比）');
     list.forEach((v, i) => {
-      const tier = M.CR_TIERS[M.crTier(v)];
       lines.push('');
       lines.push('## ' + (i + 1) + '. ' + ((v.desc || '').replace(/\s+/g, ' ').slice(0, 40) || '（无标题）'));
       lines.push('- 原链接：' + videoUrl(v));
@@ -85,8 +84,11 @@
       lines.push('- 作者：' + (v.author ? '@' + v.author : '未知'));
       if (v.source) lines.push('- 发现于：' + v.source);
       lines.push('- 发布：' + U.fmtDate(v.createTime) + (v.dn ? '（' + M.fmtDn(v.dn) + '）' : '') + ' · ' + kindLabel(v) + (v.kind === 'note' ? '' : ' ' + U.fmtDuration(v.durationMs)));
-      lines.push('- 数据：赞 ' + v.digg + ' · 评 ' + v.comment + ' · 藏 ' + v.collect + ' · 转 ' + v.share);
-      lines.push('- 比率：收藏率 ' + pct1(v.cr) + '（' + tier.label + '）· 转发率 ' + pct1(v.sr) + ' · 评论率 ' + pct1(v.er));
+      const c = (x) => (x == null ? '—' : String(x));
+      const p = (r) => (r == null ? '—' : pct1(r));
+      lines.push('- 数据：赞 ' + c(v.digg) + ' · 评 ' + c(v.comment) + ' · 藏 ' + c(v.collect) + ' · 转 ' + c(v.share));
+      lines.push('- 比率：收藏率 ' + p(v.cr) + '（' + M.tierLabel(v) + '）· 转发率 ' + p(v.sr) + ' · 评论率 ' + p(v.er));
+      if (v.capturedAt) lines.push('- 采集：' + fmtTime(v.capturedAt) + (v.dn ? '（' + M.fmtDn(v.dn) + '）' : ''));
       lines.push('- 建议：来源=对标 · 有热度=' + heatHint(v) + '（建议值）');
     });
     return lines.join('\n');
@@ -110,7 +112,7 @@
         时长秒: Math.round((v.durationMs || 0) / 1000),
         点赞: v.digg, 评论: v.comment, 收藏: v.collect, 转发: v.share,
         收藏率: ratio4(v.cr),
-        收藏率分档: M.CR_TIERS[M.crTier(v)].label,
+        收藏率分档: M.tierLabel(v),
         转发率: ratio4(v.sr),
         评论率: ratio4(v.er),
         来源: '对标',

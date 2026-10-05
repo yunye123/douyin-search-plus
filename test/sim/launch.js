@@ -12,7 +12,8 @@ const EXT_DIR = path.resolve(__dirname, '..', '..');
 
 async function launch(opts = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsp-e2e-'));
-  const args = [`--disable-extensions-except=${EXT_DIR}`, `--load-extension=${EXT_DIR}`, '--lang=zh-CN'];
+  const ext = opts.extDir || EXT_DIR;
+  const args = [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--lang=zh-CN'];
   const context = await chromium.launchPersistentContext(userDataDir, {
     channel: 'chromium',
     headless: opts.headless !== false,

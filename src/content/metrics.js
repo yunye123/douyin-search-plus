@@ -110,7 +110,13 @@
       const k0 = ks[0];
       items.sort((a, b) => (a.score - b.score) || (sortValue(b.v, k0) - sortValue(a.v, k0)) || (a.v.id < b.v.id ? -1 : 1));
     }
-    if (ascending) items.reverse();
+    if (ascending) {
+      // 倒序只翻转"可靠"的那部分：样本少（比率类）和缺数据的始终排在最后，不能因为倒序冲到第一
+      const unreliable = (v) => ks.some((k) => v[k] == null || (METRICS[k].kind === 'ratio' && v.lowSample));
+      const good = items.filter((it) => !unreliable(it.v)).reverse();
+      const bad = items.filter((it) => unreliable(it.v));
+      return good.concat(bad);
+    }
     return items;
   }
 
@@ -198,16 +204,23 @@
     na:   { label: '样本少', range: '点赞<' + RATIO_MIN_DIGG },
   };
   function crTier(v) {
-    if (v.lowSample || v.cr == null) return 'na';
+    if (v.lowSample || v.cr == null) return 'na'; // 'na' 覆盖"样本少"和"缺数据"两种，文案用 tierLabel 区分
     if (v.cr >= 0.8) return 'high';
     if (v.cr > 0.4) return 'mid';
     if (v.cr >= 0.1) return 'low';
     return 'show';
   }
 
+  // 分档的文字：点赞够多、但收藏数缺失时说"缺数据"，而不是误标成"样本少"
+  function tierLabel(v) {
+    const t = crTier(v);
+    if (t === 'na' && v.digg >= RATIO_MIN_DIGG && v.cr == null) return '缺数据';
+    return CR_TIERS[t].label;
+  }
+
   DSP.metrics = {
     METRICS, RATIO_MIN_DIGG, EMPTY_FILTER, CR_TIERS,
-    derive, fmtDn, marks, sortList, filterList, failReason, normFilter, activeFilterCount, summarize, crTier, quantile,
+    derive, fmtDn, marks, sortList, filterList, failReason, normFilter, activeFilterCount, summarize, crTier, tierLabel, quantile,
   };
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') module.exports = DSP.metrics;
 })();

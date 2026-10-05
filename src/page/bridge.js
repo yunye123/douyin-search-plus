@@ -262,8 +262,7 @@
     if (kind === 'search') {
       ctx.kw = qp(url, 'keyword');
       ctx.filter = qp(url, 'filter_selected');
-      lastFilter.kw = ctx.kw;
-      lastFilter.filter = ctx.filter;
+      ctx.offset = Number(qp(url, 'offset') || qp(url, 'cursor') || 0);
     } else {
       ctx.secUid = qp(url, 'sec_user_id');
       ctx.tab = /\/favorite\//.test(url) ? 'like' : 'post';
@@ -280,6 +279,14 @@
     };
   }
 
+  // 官方筛选以"最近发出的搜索请求"为准（在发请求时记，而不是响应回来时记：
+  // 切换筛选前发出的旧请求晚到，不能把 fiber 收割的归属带偏）
+  function noteRequest(url) {
+    if (classify(url) !== 'search') return;
+    lastFilter.kw = qp(url, 'keyword');
+    lastFilter.filter = qp(url, 'filter_selected');
+  }
+
   // ---- hook fetch ----
   const origFetch = window.fetch;
   if (typeof origFetch === 'function') {
@@ -287,6 +294,7 @@
       const p = origFetch.apply(this, arguments);
       try {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input && input.url) || '';
+        noteRequest(url);
         if (classify(url)) {
           p.then((res) => res.clone().text()).then((t) => onResponse(url, t)).catch(() => {});
         }
@@ -305,6 +313,7 @@
   };
   XMLHttpRequest.prototype.send = function () {
     const url = urlOf.get(this) || '';
+    noteRequest(url);
     if (classify(url)) {
       this.addEventListener('load', () => {
         try {

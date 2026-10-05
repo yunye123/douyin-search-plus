@@ -40,6 +40,7 @@
     sort: ['M7 4v16', 'M3.5 16.5 7 20l3.5-3.5', 'M13 6h8', 'M13 11h6', 'M13 16h4'],
     filter: ['M4 5h16l-6 7.5V19l-4 1.5v-8L4 5z'],
     down: ['M12 4v12', 'M6.5 11 12 16.5 17.5 11', 'M5 20h14'],
+    loadMore: ['M6.5 6.5 12 12l5.5-5.5', 'M6.5 12.5 12 18l5.5-5.5'],
     star: ['M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z'],
     copy: ['M9 9h10v11H9z', 'M5 15V4h10'],
     download: ['M12 4v11', 'M7 10.5 12 15.5l5-5', 'M5 19.5h14'],
@@ -161,6 +162,16 @@
     if (opts.label) panel.setAttribute('aria-label', opts.label);
     anchorBtn.setAttribute('aria-expanded', 'true');
     place(anchorBtn, panel, opts.placement || 'below');
+    // Tab 键在弹层内循环（弹层在 DOM 里离触发按钮很远，不管住的话焦点会跑到页面顶部或底部）
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const items = [...panel.querySelectorAll('button:not([disabled]), input:not([disabled]), select, a[href], [tabindex="0"]')].filter((el) => el.offsetWidth || el.offsetHeight);
+      if (!items.length) return;
+      const act = panel.getRootNode().activeElement;
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && (act === first || !panel.contains(act))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
+    });
     const st = { anchorBtn, panel, onClose: opts.onClose };
     openPop = st;
     requestAnimationFrame(() => {
@@ -200,7 +211,9 @@
   }
   // 全局：Esc 关闭、点外面关闭（事件在 shadow 边界会被重定向，用 composedPath 判断）
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && openPop) { e.stopPropagation(); closePop(true); }
+    if (e.key !== 'Escape') return;
+    if (tip.el && tip.el.classList.contains('dsp-in')) hideTip(); // 提示框可以用 Esc 关掉
+    if (openPop) { e.stopPropagation(); closePop(true); }
   }, true);
   document.addEventListener('pointerdown', (e) => {
     if (!openPop) return;
@@ -213,30 +226,39 @@
   // ---------- 提示（tooltip） ----------
   // 悬停 400ms 或键盘聚焦时出现；在相邻控件间移动时立即切换；内容：标题 + 一行解释 + 可选公式
   const tip = { el: null, t: 0, warm: false, cool: 0, cur: null };
+  // 读屏：提示文字直接写进目标的 aria-description（aria-describedby 的 id 引用跨不过 shadow root）
+  const tipText = (c) => (typeof c === 'string' ? c : [c.title, c.body, c.foot].filter(Boolean).join('：'));
+  function hideTip() {
+    clearTimeout(tip.t);
+    if (tip.el) tip.el.classList.remove('dsp-in');
+    tip.cur = null;
+    clearTimeout(tip.cool);
+    tip.cool = setTimeout(() => { tip.warm = false; }, 300);
+  }
   function bindTip(target, content, layer) {
     target.__tip = content;
+    const describe = () => { try { const c = typeof content === 'function' ? content() : content; if (c) target.setAttribute('aria-description', tipText(c)); } catch (e) { /* 忽略 */ } };
+    describe();
     const show = (immediate) => {
       clearTimeout(tip.t);
+      clearTimeout(tip.hideT);
       tip.t = setTimeout(() => renderTip(target, layer), immediate || tip.warm ? 0 : 400);
     };
-    const hide = () => {
-      clearTimeout(tip.t);
-      if (tip.el) tip.el.classList.remove('dsp-in');
-      tip.cur = null;
-      clearTimeout(tip.cool);
-      tip.cool = setTimeout(() => { tip.warm = false; }, 300);
-    };
+    // 离开目标后留 150ms：鼠标可以移到提示上（WCAG 1.4.13：提示可悬停、可关闭）
+    const hideSoon = () => { clearTimeout(tip.t); clearTimeout(tip.hideT); tip.hideT = setTimeout(hideTip, 150); };
     target.addEventListener('pointerenter', () => show(false));
-    target.addEventListener('pointerleave', hide);
-    target.addEventListener('focus', () => { if (target.matches(':focus-visible')) show(true); });
-    target.addEventListener('blur', hide);
-    target.addEventListener('pointerdown', hide);
+    target.addEventListener('pointerleave', hideSoon);
+    target.addEventListener('focus', () => { describe(); if (target.matches(':focus-visible')) show(true); });
+    target.addEventListener('blur', hideTip);
+    target.addEventListener('pointerdown', hideTip);
   }
   function renderTip(target, layer) {
     const c = typeof target.__tip === 'function' ? target.__tip() : target.__tip;
     if (!c || !target.isConnected) return;
     if (!tip.el) {
-      tip.el = h('div', { class: 'dsp-tip', role: 'tooltip', id: 'dsp-tip' });
+      tip.el = h('div', { class: 'dsp-tip', 'aria-hidden': 'true' });
+      tip.el.addEventListener('pointerenter', () => clearTimeout(tip.hideT));
+      tip.el.addEventListener('pointerleave', () => { tip.hideT = setTimeout(hideTip, 150); });
     }
     if (tip.el.parentNode !== layer) layer.appendChild(tip.el);
     clear(tip.el);
@@ -246,7 +268,7 @@
       if (c.body) tip.el.appendChild(h('div', { class: 'dsp-tip-body' }, c.body));
       if (c.foot) tip.el.appendChild(h('div', { class: 'dsp-tip-foot' }, c.foot));
     }
-    target.setAttribute('aria-describedby', 'dsp-tip');
+    target.setAttribute('aria-description', tipText(c));
     const r = target.getBoundingClientRect();
     tip.el.style.left = '0px';
     tip.el.style.top = '0px';
@@ -266,12 +288,14 @@
   // ---------- 轻提示（toast） ----------
   // 出现在指定锚点附近；3 秒消失，悬停时暂停；可带一个动作按钮（例如"撤销"）
   let toastSt = { el: null, t: 0 };
+  // 统一出现在视口底部居中（不盖住结果第一行的名次和收藏率）；
+  // 只有带动作按钮（例如"撤销"）的提示在鼠标悬停时暂停计时，普通提示照常消失
   function toast(layer, msg, opts) {
     opts = opts || {};
     if (!toastSt.el) {
       toastSt.el = h('div', { class: 'dsp-toast', role: 'status', 'aria-live': 'polite' });
-      toastSt.el.addEventListener('pointerenter', () => clearTimeout(toastSt.t));
-      toastSt.el.addEventListener('pointerleave', () => arm(2000));
+      toastSt.el.addEventListener('pointerenter', () => { if (toastSt.hasAction) clearTimeout(toastSt.t); });
+      toastSt.el.addEventListener('pointerleave', () => { if (toastSt.hasAction) toastSt.arm(2000); });
     }
     const el = toastSt.el;
     if (el.parentNode !== layer) layer.appendChild(el);
@@ -279,17 +303,13 @@
     el.classList.toggle('dsp-toast-warn', opts.tone === 'warn');
     el.appendChild(icon(opts.icon || (opts.tone === 'warn' ? 'warn' : 'check'), 16));
     el.appendChild(h('span', { class: 'dsp-toast-msg' }, msg));
+    toastSt.hasAction = !!opts.action;
     if (opts.action) {
       el.appendChild(h('button', { class: 'dsp-toast-act', type: 'button', onclick: () => { el.classList.remove('dsp-in'); opts.action.run(); } }, opts.action.label));
     }
-    const a = opts.anchor && opts.anchor.isConnected ? opts.anchor.getBoundingClientRect() : null;
-    el.style.left = '50%';
-    el.style.transform = 'translateX(-50%)';
-    el.style.top = a ? Math.round(Math.min(a.bottom + 10, window.innerHeight - 60)) + 'px' : '';
-    el.style.bottom = a ? '' : '24px';
+    toastSt.arm = (ms) => { clearTimeout(toastSt.t); toastSt.t = setTimeout(() => el.classList.remove('dsp-in'), ms); };
     requestAnimationFrame(() => el.classList.add('dsp-in'));
-    arm(opts.duration || 3000);
-    function arm(ms) { clearTimeout(toastSt.t); toastSt.t = setTimeout(() => el.classList.remove('dsp-in'), ms); }
+    toastSt.arm(opts.duration || (opts.action ? 5000 : 3000));
   }
 
   // 系统"减少动态效果"

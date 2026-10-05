@@ -23,7 +23,7 @@
 @keyframes dsp-flash { 0%, 100% { background: rgba(255, 181, 71, 0.08); } 30% { background: rgba(255, 181, 71, 0.28); } }
 
 /* 插件自己的宿主节点 */
-#dsp-dock { display: block; position: sticky; z-index: 20; margin: 0 0 16px 0; }
+#dsp-dock { display: block; position: sticky; z-index: 20; margin: -8px 0 16px 0; padding-top: 8px; background: var(--dsp-page-bg, #161722); }
 #dsp-cbar { display: block; position: sticky; top: 0; z-index: 5; }
 #dsp-root { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; z-index: 2147483000; }
 
