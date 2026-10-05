@@ -86,9 +86,11 @@
       list.classList.remove('dsp-flowcol');
       for (const s of scored) if (s.r.el.style.order) s.r.el.style.order = '';
     }
+    // 一条都没命中时不把整片评论变暗（只在工具条上说明"没有人提到"）
+    const anyHit = scored.some((s) => s.hit);
     for (const s of scored) {
       s.r.el.classList.toggle('dsp-c-hit', !!state.highlight && s.hit);
-      s.r.el.classList.toggle('dsp-c-miss', !!state.highlight && !s.hit);
+      s.r.el.classList.toggle('dsp-c-miss', !!state.highlight && anyHit && !s.hit);
     }
     state.applied = true;
     state.list = list;

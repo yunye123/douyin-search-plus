@@ -1,0 +1,33 @@
+/* 注入到抖音页面（light DOM）的最少样式：只作用于插件自己加的 dsp- 类名。
+   插件的界面本身都在 Shadow DOM 里，不受这里影响。 */
+
+/* 角标定位上下文：只给原本是 static 的卡片补，绝不覆盖抖音给卡片设的定位方式 */
+.dsp-rel { position: relative !important; }
+
+/* 原地重排：块级列表临时转成 flex 换行，卡片用 order 排 */
+.dsp-flow { display: flex !important; flex-wrap: wrap !important; align-items: flex-start !important; }
+
+/* 未达标的结果：变暗沉底，鼠标移上去恢复，不隐藏 */
+.dsp-dim { opacity: 0.32 !important; filter: saturate(0.5); transition: opacity 160ms ease, filter 160ms ease; }
+.dsp-dim:hover, .dsp-dim:focus-within { opacity: 1 !important; filter: none; }
+
+/* 评论排序：评论列表临时转纵向 flex；没设 order 的子元素（例如"加载中"）排在最后 */
+.dsp-flowcol { display: flex !important; flex-direction: column !important; }
+.dsp-flowcol > * { order: 999999; }
+
+/* 评论门槛词高亮 */
+.dsp-c-hit { box-shadow: inset 3px 0 0 #FFB547 !important; background: rgba(255, 181, 71, 0.08) !important; border-radius: 6px; }
+.dsp-c-miss { opacity: 0.42; transition: opacity 160ms ease; }
+.dsp-c-miss:hover { opacity: 1; }
+.dsp-c-focus { animation: dsp-flash 900ms ease 1; }
+@keyframes dsp-flash { 0%, 100% { background: rgba(255, 181, 71, 0.08); } 30% { background: rgba(255, 181, 71, 0.28); } }
+
+/* 插件自己的宿主节点 */
+#dsp-dock { display: block; position: sticky; z-index: 20; margin: 0 0 16px 0; }
+#dsp-cbar { display: block; position: sticky; top: 0; z-index: 5; }
+#dsp-root { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; z-index: 2147483000; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dsp-dim, .dsp-c-miss { transition: none; }
+  .dsp-c-focus { animation: none; }
+}

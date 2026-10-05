@@ -119,7 +119,9 @@
   //   minCr: 0.8 —— 藏赞比下限（样本少的结果不参与比率筛选时也一并排除）
   //   maxAgeDays: 30 —— 只看近 N 天发布
   //   kind: 'all' | 'video' | 'note'
-  const EMPTY_FILTER = Object.freeze({ min: Object.freeze({ digg: 0, comment: 0, collect: 0, share: 0 }), minCr: 0, maxAgeDays: 0, kind: 'all' });
+  //   tier: '' | 'high' | 'mid' | 'low' | 'show' | 'na' —— 只看某一档收藏率（点分布条的分段）
+  const EMPTY_FILTER = Object.freeze({ min: Object.freeze({ digg: 0, comment: 0, collect: 0, share: 0 }), minCr: 0, maxAgeDays: 0, kind: 'all', tier: '' });
+  const TIER_KEYS = ['high', 'mid', 'low', 'show', 'na'];
   function normFilter(f) {
     f = f || {};
     const m = f.min || {};
@@ -128,6 +130,7 @@
       minCr: +f.minCr || 0,
       maxAgeDays: +f.maxAgeDays || 0,
       kind: f.kind === 'video' || f.kind === 'note' ? f.kind : 'all',
+      tier: TIER_KEYS.indexOf(f.tier) >= 0 ? f.tier : '',
     };
   }
   function activeFilterCount(f) {
@@ -137,6 +140,7 @@
     if (f.minCr > 0) n++;
     if (f.maxAgeDays > 0) n++;
     if (f.kind !== 'all') n++;
+    if (f.tier) n++;
     return n;
   }
   function passes(v, f) {
@@ -144,7 +148,23 @@
     if (f.minCr > 0 && (v.lowSample || v.cr < f.minCr)) return false;
     if (f.maxAgeDays > 0 && !(v.createTime > 0 && v.ageDays <= f.maxAgeDays)) return false;
     if (f.kind !== 'all' && v.kind !== f.kind) return false;
+    if (f.tier && crTier(v) !== f.tier) return false;
     return true;
+  }
+  // 没达标的原因（给变暗的卡片挂原因牌）：只返回最主要的一条
+  function failReason(v, f) {
+    f = normFilter(f);
+    const n = (x) => (x >= 10000 ? (Math.round(x / 1000) / 10 + '万').replace('.0万', '万') : String(x));
+    if (f.tier && crTier(v) !== f.tier) return '不在这一档';
+    if (f.kind !== 'all' && v.kind !== f.kind) return v.kind === 'note' ? '图文' : '视频';
+    if (f.minCr > 0 && v.lowSample) return '样本少';
+    if (f.minCr > 0 && !(v.cr >= f.minCr)) return '收藏率 < ' + Math.round(f.minCr * 100) + '%';
+    if (f.maxAgeDays > 0 && !(v.createTime > 0 && v.ageDays <= f.maxAgeDays)) return f.maxAgeDays === 365 ? '一年前' : f.maxAgeDays + ' 天前';
+    if (f.min.digg && !(v.digg >= f.min.digg)) return '赞 < ' + n(f.min.digg);
+    if (f.min.collect && !(v.collect >= f.min.collect)) return '藏 < ' + n(f.min.collect);
+    if (f.min.comment && !(v.comment >= f.min.comment)) return '评 < ' + n(f.min.comment);
+    if (f.min.share && !(v.share >= f.min.share)) return '转 < ' + n(f.min.share);
+    return '';
   }
   function filterList(list, f) {
     const nf = normFilter(f);
@@ -187,7 +207,7 @@
 
   DSP.metrics = {
     METRICS, RATIO_MIN_DIGG, EMPTY_FILTER, CR_TIERS,
-    derive, fmtDn, marks, sortList, filterList, normFilter, activeFilterCount, summarize, crTier, quantile,
+    derive, fmtDn, marks, sortList, filterList, failReason, normFilter, activeFilterCount, summarize, crTier, quantile,
   };
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') module.exports = DSP.metrics;
 })();

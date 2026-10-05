@@ -124,3 +124,16 @@ test('格式化', () => {
   assert.equal(U.fmtAgo(NOW - 3 * 86400, NOW), '3天前');
   assert.equal(U.fmtAgo(NOW - 90 * 86400, NOW), '3个月前');
 });
+
+test('按分档筛选与未达标原因', () => {
+  const a = mk('a', { digg: 1000, collect: 900 });
+  const b = mk('b', { digg: 1000, collect: 300 });
+  const c = mk('c', { digg: 20, collect: 30, kind: 'note' });
+  assert.deepEqual(M.filterList([a, b, c], { tier: 'high' }).map((v) => v.id), ['a']);
+  assert.equal(M.activeFilterCount({ tier: 'low' }), 1);
+  assert.equal(M.failReason(b, { minCr: 0.8 }), '收藏率 < 80%');
+  assert.equal(M.failReason(c, { minCr: 0.8 }), '样本少');
+  assert.equal(M.failReason(c, { kind: 'video' }), '图文');
+  assert.equal(M.failReason(b, { min: { digg: 10000 } }), '赞 < 1万');
+  assert.equal(M.failReason(a, { minCr: 0.8 }), '');
+});

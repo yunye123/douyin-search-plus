@@ -183,6 +183,7 @@
   function isOpen(panel) { return !!openPop && (!panel || openPop.panel === panel); }
   // 定位：贴着按钮下方（或上方），不出视口
   function place(anchor, panel, placement) {
+    if (placement === 'none') return; // 面板自己定位（例如右侧抽屉）
     const r = anchor.getBoundingClientRect();
     panel.style.position = 'fixed';
     panel.style.visibility = 'hidden';

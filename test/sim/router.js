@@ -116,7 +116,7 @@ function createSim() {
     await context.route(/.*/, (route) => {
       const u = route.request().url();
       if (/^https:\/\/(www\.douyin\.com|p3-sim\.douyinpic\.com)\//.test(u)) return handle(route);
-      if (u.startsWith('chrome-extension://') || u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
+      if (u.startsWith('chrome-extension://') || u.startsWith('data:') || u.startsWith('blob:') || u.startsWith('file:')) return route.continue();
       return route.abort();
     });
   }

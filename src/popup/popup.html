@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>抖音搜索增强</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="head">
+    <img class="logo" src="../../icons/icon48.png" width="32" height="32" alt="">
+    <div class="name">
+      <b>抖音搜索增强</b>
+      <span>DouyinSearchPlus <span id="version"></span></span>
+    </div>
+    <label class="switch" title="插件总开关：关闭后抖音页面完全还原">
+      <span class="sr">插件总开关</span>
+      <input id="enabled" type="checkbox" role="switch">
+      <i aria-hidden="true"></i>
+    </label>
+  </header>
+
+  <section id="status" class="status" aria-live="polite">
+    <span class="status-dot" aria-hidden="true"></span>
+    <div class="status-tx">
+      <b id="status-title">正在读取当前页面…</b>
+      <span id="status-sub"></span>
+    </div>
+    <button id="status-act" class="act" type="button" hidden></button>
+  </section>
+
+  <section class="card">
+    <h2>收藏率怎么看</h2>
+    <p class="formula">收藏率 = 收藏 ÷ 点赞</p>
+    <ul class="tiers">
+      <li><i class="t-high"></i><b>真需求</b><span>≥ 80%，观众存着回看，选题成立</span></li>
+      <li><i class="t-mid"></i><b>一般</b><span>40% ~ 80%</span></li>
+      <li><i class="t-low"></i><b>有门槛</b><span>10% ~ 40%，可能太难、太贵或进不去</span></li>
+      <li><i class="t-show"></i><b>展示型</b><span>&lt; 10%，好看但不实用</span></li>
+      <li><i class="t-na"></i><b>样本少</b><span>点赞不足 100，比率不参与分档</span></li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2>设置</h2>
+    <label class="row">
+      <span>卡片上显示收藏率</span>
+      <span class="switch sm"><input id="badges" type="checkbox" role="switch"><i aria-hidden="true"></i></span>
+    </label>
+    <label class="row">
+      <span>「继续加载」上限<small>主页按 3 倍计算</small></span>
+      <select id="loadCap">
+        <option value="60">60 条</option>
+        <option value="100">100 条（推荐）</option>
+        <option value="200">200 条</option>
+      </select>
+    </label>
+    <div class="row static">
+      <span>候选篮</span>
+      <span><b id="cand-count">0</b> 条 · 在页面工具栏里打开</span>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span>非抖音官方产品 · 免登录 · 数据只存在本机</span>
+    <a href="https://github.com/yunye123/douyin-search-plus#readme" target="_blank" rel="noopener">说明与反馈</a>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>

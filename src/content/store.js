@@ -39,7 +39,7 @@
   const DEFAULT_SETTINGS = {
     enabled: true,        // 总开关
     badges: true,         // 卡片数据角标
-    loadCap: 200,         // 自动加载上限（条）
+    loadCap: 100,         // 自动加载上限（条）：搜索页默认 100，主页按 3 倍（最多 600）
     guideDone: false,     // 首次引导是否已看过
     collapsed: false,     // 工具栏是否收起
     sortKeys: ['cr'],     // 上次的排序维度（下次打开时作为默认建议，不自动接管页面）
@@ -248,6 +248,12 @@
     persistCandidates();
     ev.emit('candidates');
   }
+  // 撤销用：把之前的候选条目原样放回（保留加入时间和来源）
+  function restoreCandidates(entries) {
+    for (const [id, c] of entries) S.candidates.set(id, c);
+    persistCandidates();
+    ev.emit('candidates');
+  }
   function clearCandidates() {
     S.candidates.clear();
     persistCandidates();
@@ -292,7 +298,7 @@
     S, on: ev.on, emit: ev.emit,
     routeOf, normKw, normFilter, setRoute, intakeVideos, intakeComments,
     derived, viewOf, setSort, setFilter, resetView,
-    saveSettings, addCandidate, removeCandidate, clearCandidates, candidateList, load,
+    saveSettings, addCandidate, removeCandidate, clearCandidates, restoreCandidates, candidateList, load,
     DEFAULT_SETTINGS,
   };
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') module.exports = DSP.store;

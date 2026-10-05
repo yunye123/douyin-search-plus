@@ -134,7 +134,29 @@
 
   // ---------- 拦截检测：登录墙 / 验证码 ----------
   // 只看"可见的、悬浮在页面上的"元素，避免把页面正文里的"登录"二字当成登录墙
+  const RE_CAPTCHA = /验证码|安全验证|滑块|拖动.*完成|请完成验证|向右拖动|旋转.*图片/;
+  const RE_LOGIN = /登录后|扫码登录|一键登录|手机号登录|登录抖音|立即登录|验证码登录/;
   function blockingReason() {
+    // ① 通用：屏幕中央最上层是不是一个"盖住页面的固定遮罩"，而且里面写着登录/验证（不依赖类名）
+    const W = window.innerWidth, H = window.innerHeight;
+    for (const [x, y] of [[W / 2, H / 2], [W / 2, H * 0.35]]) {
+      const stack = document.elementsFromPoint(x, y);
+      for (const el of stack.slice(0, 6)) {
+        if (el.closest('#dsp-root, #dsp-dock, #dsp-cbar')) continue;
+        let p = el;
+        for (let i = 0; p && p !== document.body && i < 8; i++, p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          if (cs.position !== 'fixed') continue;
+          const r = p.getBoundingClientRect();
+          if (r.width < 240 || r.height < 140) continue;
+          const t = (p.textContent || '').slice(0, 600);
+          if (RE_CAPTCHA.test(t)) return 'captcha';
+          if (RE_LOGIN.test(t)) return 'login';
+          break;
+        }
+      }
+    }
+    // ② 按类名找常见的登录/验证弹窗
     const cands = document.querySelectorAll('[class*="login" i], [class*="Login"], [id*="login" i], [class*="captcha" i], [id*="captcha" i], [class*="verify" i], [id*="verify" i], [role="dialog"], [class*="modal" i]');
     for (const el of cands) {
       if (el.closest('#dsp-root')) continue;
@@ -143,8 +165,8 @@
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) continue;
       const t = (el.textContent || '').slice(0, 400);
-      if (/验证码|安全验证|滑块|拖动.*完成|请完成验证/.test(t) || /captcha|verify/i.test(el.id + ' ' + el.className)) return 'captcha';
-      if (/登录后|扫码登录|一键登录|手机号登录|登录抖音/.test(t)) return 'login';
+      if (RE_CAPTCHA.test(t) || /captcha|verify/i.test(el.id + ' ' + el.className)) return 'captcha';
+      if (RE_LOGIN.test(t)) return 'login';
     }
     for (const f of document.querySelectorAll('iframe[src*="verify"], iframe[src*="captcha"]')) {
       const r = f.getBoundingClientRect();

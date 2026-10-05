@@ -8,8 +8,9 @@
 
   // 选题视角：一次点击 = 一种看法（排序 + 可选的门槛）
   const LENSES = [
-    { key: 'need', label: '真需求', sort: ['cr'], desc: '按收藏率从高到低', tip: '收藏率 = 收藏 ÷ 点赞。≥80% 说明观众存着回看，选题成立。点赞不到 100 的样本少，排在后面' },
-    { key: 'collect', label: '收藏多', sort: ['collect'], desc: '按收藏数从多到少', tip: '收藏的绝对数量。和收藏率一起看：既要比例高，也要量够大' },
+    // 真需求 = 收藏率过线 + 量够大：先筛收藏率 ≥ 80% 的视频，再按收藏数排（只按比率排，299 赞的小样本会冲到第一）
+    { key: 'need', label: '真需求', sort: ['collect'], filter: { minCr: 0.8, kind: 'video' }, desc: '收藏率 ≥ 80% 的视频，按收藏数从多到少', tip: '收藏率 = 收藏 ÷ 点赞。≥80% 说明观众存着回看，选题成立；再按收藏数排，量大的在前' },
+    { key: 'ratio', label: '收藏率最高', sort: ['cr'], desc: '按收藏率从高到低，点赞不足 100 的排最后', tip: '只看比例。点赞太少时比率波动大，这些结果排在最后、标"样本少"' },
     { key: 'rising', label: '起飞中', sort: ['dpd'], filter: { maxAgeDays: 30 }, desc: '近 30 天，按日均赞', tip: '只看近 30 天发布的，按"点赞 ÷ 发布天数"排，找正在涨的新视频' },
     { key: 'talk', label: '热议', sort: ['er'], desc: '按评论率从高到低', tip: '评论率 = 评论 ÷ 点赞。越高越能引发讨论，评论区常藏着下一个选题' },
     { key: 'top10', label: '账号 Top10', sort: ['collect', 'comment'], filter: { kind: 'video', maxAgeDays: 365 }, desc: '近一年视频，收藏名次 + 评论名次', tip: '做账号对标用：近一年、只看视频，按收藏名次 + 评论名次相加排，同分按收藏数', only: 'profile' },
@@ -21,7 +22,7 @@
       if (l.sort.join('+') !== view.sortKeys.join('+') || view.asc) continue;
       const want = M.normFilter(l.filter || null);
       const f = view.filter;
-      if (want.maxAgeDays === f.maxAgeDays && want.kind === f.kind && want.minCr === f.minCr && !f.min.digg && !f.min.comment && !f.min.collect && !f.min.share) return l;
+      if (want.maxAgeDays === f.maxAgeDays && want.kind === f.kind && want.minCr === f.minCr && !f.tier && !f.min.digg && !f.min.comment && !f.min.collect && !f.min.share) return l;
     }
     return null;
   }
@@ -100,7 +101,7 @@
     } else if (o.count) {
       out.push({ t: '真需求 ' + o.strongNeed + ' 条', tone: o.strongNeed ? 'em' : 'dim' });
     }
-    if (o.count && o.count < SAMPLE_LOW && !o.loading) out.push({ t: '样本较少，建议继续加载', tone: 'dim' });
+    if (o.count && o.count < SAMPLE_LOW && !o.loading && !o.sorted) out.push({ t: '样本较少，建议继续加载', tone: 'dim' });
     return out;
   }
 

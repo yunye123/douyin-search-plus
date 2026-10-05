@@ -10,24 +10,24 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": [
-    "storage"
-  ],
+  "action": {
+    "default_title": "抖音搜索增强",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "permissions": ["storage"],
   "content_scripts": [
     {
-      "matches": [
-        "https://www.douyin.com/*"
-      ],
-      "js": [
-        "src/page/bridge.js"
-      ],
+      "matches": ["https://www.douyin.com/*"],
+      "js": ["src/page/bridge.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": [
-        "https://www.douyin.com/*"
-      ],
+      "matches": ["https://www.douyin.com/*"],
       "js": [
         "src/content/util.js",
         "src/content/metrics.js",
@@ -38,9 +38,16 @@
         "src/content/presenter.js",
         "src/content/comments.js",
         "src/content/inplace.js",
+        "src/content/ui-css.js",
         "src/content/ui-kit.js",
+        "src/content/ui-cards.js",
+        "src/content/ui-toolbar.js",
+        "src/content/ui-basket.js",
+        "src/content/ui-comments.js",
+        "src/content/ui.js",
         "src/content/app.js"
       ],
+      "css": ["src/content/page.css"],
       "run_at": "document_start"
     }
   ]
