@@ -51,7 +51,7 @@ const ago = (ct) => { const d = (NOW - ct) / 86400; if (d < 1) return Math.max(1
 const dur = (ms) => { const s = Math.round(ms / 1000); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 const escH = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const FK = '__reactFiber$sim' + Math.random().toString(36).slice(2, 8);
-const NOFIBER = /[?&]nofiber=1/.test(location.search);
+const NOFIBER = /[?&](nofiber|broken)=1/.test(location.search);
 function attachFiber(el, itemInfo) { if (NOFIBER) return; el[FK] = { tag: 5, memoizedProps: { className: el.className }, return: { tag: 0, memoizedProps: { itemInfo } } }; }
 function apiToSearchFiber(a) {
   return { type: 1, docType: 1, awemeInfo: {
@@ -192,6 +192,8 @@ chaos('#search-result-container ul[data-e2e="scroll-list"] > li', (li, replace) 
 S.mix = __MIX__;
 render(__FIRST__);
 S.offset = 20;
+// ?broken=1：模拟抖音改版——容器 id、data-e2e 全换掉，fiber 也没有（插件应进入"读不到结果"并给出诊断）
+if (/[?&]broken=1/.test(location.search)) { const c = document.getElementById("search-result-container"); c.id = "src-" + Math.random().toString(36).slice(2, 7); ul.removeAttribute("data-e2e"); }
 S.ready = true;
 `;
 
