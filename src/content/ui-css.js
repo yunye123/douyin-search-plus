@@ -37,8 +37,8 @@
   --glass: rgba(255, 255, 255, 0.9);
   --line: rgba(22, 24, 35, 0.10); --line2: rgba(22, 24, 35, 0.18);
   --t1: #161823; --t2: #57585F; --t3: #63646C; --t4: #A0A1A8;
-  --red-text: #D9123A; --cyan-text: #00807C;
-  --tier-high-text: #00807C; --tier-mid-text: #57585F; --tier-low-text: #9A5B00; --tier-show-text: #6B4BC8; --tier-na-text: #6F7079;
+  --red-text: #D9123A; --cyan-text: #006B67;
+  --tier-high-text: #006B67; --tier-mid-text: #57585F; --tier-low-text: #9A5B00; --tier-show-text: #6B4BC8; --tier-na-text: #6F7079;
   --sh-pop: 0 0 0 1px rgba(22, 24, 35, 0.08), 0 24px 56px -12px rgba(22, 24, 35, 0.28);
   --sh-bar: 0 0 0 1px rgba(22, 24, 35, 0.08), 0 12px 32px -8px rgba(22, 24, 35, 0.22);
   --focus-c: #00807C;
@@ -70,7 +70,7 @@ svg { display: block; flex: none; }
 
   // 弹层、提示、轻提示
   const OVERLAYS = `
-.dsp-pop { position: fixed; z-index: 30; min-width: 240px; background: var(--s2); border-radius: var(--r-pop); box-shadow: var(--sh-pop); color: var(--t1);
+.dsp-pop { position: fixed; z-index: 30; min-width: 240px; overflow-y: auto; overscroll-behavior: contain; background: var(--s2); border-radius: var(--r-pop); box-shadow: var(--sh-pop); color: var(--t1);
   opacity: 0; transform: translateY(6px) scale(.98); transform-origin: top center; transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
 .dsp-pop.dsp-in { opacity: 1; transform: none; transition: opacity 180ms var(--ease), transform 180ms var(--ease); }
 .dsp-tip { position: fixed; z-index: 40; max-width: 260px; padding: 8px 10px; background: var(--s3); color: var(--t1); border-radius: 8px; box-shadow: var(--sh-pop);
@@ -83,7 +83,8 @@ svg { display: block; flex: none; }
 .dsp-toast { position: fixed; z-index: 50; left: 0; right: 0; bottom: 24px; margin: 0 auto; width: max-content; display: flex; align-items: center; gap: 8px; min-height: 40px; max-width: min(560px, calc(100vw - 32px)); padding: 8px 8px 8px 12px;
   background: var(--s3); color: var(--t1); border-radius: 12px; box-shadow: var(--sh-pop); font: 13px/20px var(--font);
   opacity: 0; translate: 0 6px; transition: opacity 160ms var(--ease), translate 160ms var(--ease); pointer-events: none; }
-.dsp-toast.dsp-in { opacity: 1; translate: 0 0; pointer-events: auto; }
+.dsp-toast:not(.dsp-in) { visibility: hidden; transition: opacity 160ms var(--ease), translate 160ms var(--ease), visibility 0s linear 160ms; }
+.dsp-toast.dsp-in { opacity: 1; translate: 0 0; pointer-events: auto; visibility: visible; }
 .dsp-toast svg { color: var(--cyan-text); }
 .dsp-toast.dsp-toast-warn svg { color: var(--tier-low-text); }
 .dsp-toast-msg { flex: 1; min-width: 0; padding-right: 4px; }

@@ -20,7 +20,7 @@
     }
     if (c.kind === 'note') thumb.appendChild(h('span', { class: 'bk-dur' }, '图文'));
     else if (c.durationMs) thumb.appendChild(h('span', { class: 'bk-dur' }, U.fmtDuration(c.durationMs)));
-    const row = h('li', { class: 'bk-item' },
+    const row = h('li', { class: 'bk-item' + (c.copiedAt ? ' copied' : '') },
       h('a', { class: 'bk-link', href: url, target: '_blank', rel: 'noopener noreferrer', title: '在新标签页打开' },
         thumb,
         h('span', { class: 'bk-body' },
@@ -29,7 +29,9 @@
           h('span', { class: 'bk-data' },
             h('b', { class: 'c-' + tier }, tier === 'na' ? '样本少' : U.fmtPct(c.cr)),
             tier !== 'na' ? h('span', { class: 'tier tier-' + tier }, M.CR_TIERS[tier].label) : null,
-            h('span', { class: 'bk-meta' }, (c.dn ? M.fmtDn(c.dn) + ' · ' : '') + '赞 ' + U.fmtNum(c.digg))))),
+            h('span', { class: 'bk-meta' }, (c.dn ? M.fmtDn(c.dn) + ' · ' : '') + '赞 ' + U.fmtNum(c.digg)),
+            c.copiedAt ? h('span', { class: 'bk-copied' }, '已复制') : null,
+            c.extra && c.extra.comments ? h('span', { class: 'bk-copied' }, '含评论结论') : null))),
       h('span', { class: 'bk-side' },
         h('button', { class: 'bk-x', type: 'button', 'aria-label': '移出候选篮', onclick: () => api.removeCandidate(c.id) }, icon('close', 14)),
         h('span', { class: 'bk-ago' }, ago(c.addedAt))));
@@ -75,13 +77,18 @@
     box.append(tabs, pre);
     renderPre();
 
+    // 默认只复制还没复制过的（上次已交给 Agent 的不重复给）；都复制过时复制全部
+    const fresh = list.filter((c) => !c.copiedAt).length;
+    const n = fresh || list.length;
     const primary = h('button', { class: 'bk-primary', type: 'button', 'data-autofocus': '', 'data-dsp': 'copy-md', onclick: () => api.copy('md', primary) },
-      icon('copy', 18), h('span', { class: 'bk-pt' }, h('b', null, '复制入库包 · ' + list.length + ' 条'), h('span', null, '粘贴给 Agent，说「添加选题」')));
+      icon('copy', 18), h('span', { class: 'bk-pt' }, h('b', null, '复制入库包 · ' + n + ' 条' + (fresh && fresh < list.length ? '新的' : '')),
+        h('span', null, fresh && fresh < list.length ? '另有 ' + (list.length - fresh) + ' 条复制过，不重复给' : '粘贴给 Agent，说「添加选题」')));
     const sec = h('div', { class: 'bk-sec' },
       h('button', { class: 'bk-btn', type: 'button', 'data-dsp': 'copy-tsv', onclick: (e) => api.copy('tsv', e.currentTarget) }, icon('table', 16), '复制为表格'),
       h('button', { class: 'bk-btn', type: 'button', 'data-dsp': 'csv', onclick: () => api.downloadCsv() }, icon('download', 16), '下载 CSV'),
       h('button', { class: 'bk-btn', type: 'button', 'data-dsp': 'copy-json', onclick: (e) => api.copy('json', e.currentTarget) }, h('span', { class: 'mono' }, '{ }'), '复制 JSON'));
-    box.append(h('div', { class: 'bk-actions' }, primary, sec));
+    const again = fresh && fresh < list.length ? h('button', { class: 'link bk-again', type: 'button', 'data-dsp': 'copy-all', onclick: (e) => api.copy('md', e.currentTarget, true) }, '全部 ' + list.length + ' 条再复制一次') : null;
+    box.append(h('div', { class: 'bk-actions' }, primary, sec, again));
     return box;
   }
 
@@ -126,7 +133,10 @@
 .bk-primary:hover { background: #F0254D; }
 .bk-pt { display: flex; flex-direction: column; }
 .bk-pt b { font: 600 15px/22px var(--font); }
-.bk-pt span { font-size: 12px; line-height: 18px; opacity: .85; }
+.bk-pt span { font-size: 12px; line-height: 18px; }
+.bk-item.copied .bk-title, .bk-item.copied .bk-thumb { opacity: .55; }
+.bk-copied { height: 18px; padding: 0 6px; border-radius: 4px; background: var(--s3); color: var(--t2); font-size: 11px; line-height: 18px; white-space: nowrap; }
+.bk-again { align-self: center; }
 .bk-sec { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .bk-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 38px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line2); color: var(--t1); font-size: 13px; }
 .bk-btn:hover { background: var(--line); }

@@ -67,6 +67,23 @@
   }
 
   // ---------- 入库包 ----------
+  const authorUrl = (v) => (v.authorId ? 'https://www.douyin.com/user/' + v.authorId : '');
+  // "发现于"：搜索「xx」/ @作者 主页，排过序的带上看法和名次
+  function discovered(v) {
+    if (!v.source) return '';
+    const x = v.extra || {};
+    let s = v.srcType === 'profile' && v.source.charAt(0) === '@' ? v.source + ' 主页' : v.source;
+    if (x.rank) s += ' · ' + (x.lensLabel ? x.lensLabel + ' ' : '') + '第 ' + x.rank + ' 名';
+    return s;
+  }
+  const accountText = (a) => (a ? [a.fans ? '粉丝 ' + U.fmtNum(a.fans) : '', a.likes ? '获赞 ' + U.fmtNum(a.likes) : '', a.works ? '作品 ' + a.works : ''].filter(Boolean).join(' · ') : '');
+  // 评论区诊断：只列出现过的门槛词
+  function commentsLine(cm) {
+    if (!cm || !cm.stats) return '';
+    const parts = BARRIERS.filter((b) => cm.stats[b.key]).map((b) => b.label + ' ' + cm.stats[b.key]);
+    const read = cm.total ? '已读 ' + cm.loaded + '/' + cm.total : '已读 ' + cm.loaded;
+    return (parts.length ? parts.join(' · ') : '没有人提到门槛词') + '（' + read + '）';
+  }
   // Markdown：复制后直接对 Agent 说"添加选题"，Agent 只负责改写标题和打分，不必再去抖音取数
   function toMarkdown(list, meta) {
     meta = meta || {};
@@ -81,14 +98,22 @@
       lines.push('- 原链接：' + videoUrl(v));
       // 原标题照抄 desc；多行时缩进续行，保持在同一个列表项里
       lines.push('- 原标题：' + (v.desc || '').replace(/\n/g, '\n  '));
-      lines.push('- 作者：' + (v.author ? '@' + v.author : '未知'));
-      if (v.source) lines.push('- 发现于：' + v.source);
+      const x = v.extra || {};
+      lines.push('- 作者：' + (v.author ? '@' + v.author : '未知') + (authorUrl(v) ? '（主页 ' + authorUrl(v) + '）' : ''));
+      if (x.account) lines.push('- 账号快照：' + accountText(x.account) + (x.account.at ? '（' + U.fmtDate(x.account.at) + ' 采集）' : ''));
+      if (discovered(v)) lines.push('- 发现于：' + discovered(v));
       lines.push('- 发布：' + U.fmtDate(v.createTime) + (v.dn ? '（' + M.fmtDn(v.dn) + '）' : '') + ' · ' + kindLabel(v) + (v.kind === 'note' ? '' : ' ' + U.fmtDuration(v.durationMs)));
       const c = (x) => (x == null ? '—' : String(x));
       const p = (r) => (r == null ? '—' : pct1(r));
       lines.push('- 数据：赞 ' + c(v.digg) + ' · 评 ' + c(v.comment) + ' · 藏 ' + c(v.collect) + ' · 转 ' + c(v.share));
       lines.push('- 比率：收藏率 ' + p(v.cr) + '（' + M.tierLabel(v) + '）· 转发率 ' + p(v.sr) + ' · 评论率 ' + p(v.er));
+      if (x.share != null) lines.push('- 占账号总获赞：' + pct1(x.share));
       if (v.capturedAt) lines.push('- 采集：' + fmtTime(v.capturedAt) + (v.dn ? '（' + M.fmtDn(v.dn) + '）' : ''));
+      if (x.comments) {
+        lines.push('- 评论区：' + commentsLine(x.comments));
+        // 原评论一字不改（SOP「原文|原评论」字段）
+        for (const t of (x.comments.picks || []).slice(0, 5)) lines.push('  - 原评论：' + String(t).replace(/\s*\n\s*/g, ' '));
+      }
       lines.push('- 建议：来源=对标 · 有热度=' + heatHint(v) + '（建议值）');
     });
     return lines.join('\n');
@@ -100,11 +125,17 @@
     return JSON.stringify({
       tool: 'DouyinSearchPlus',
       exportedAt: fmtTime(meta.now),
-      source: meta.source || '',
-      items: list.map((v) => ({
+      source: meta.source || '候选篮',
+      items: list.map((v) => {
+        const x = v.extra || {};
+        return {
         原标题: v.desc,
         原链接: videoUrl(v),
         作者: v.author,
+        作者主页: authorUrl(v),
+        发现于: discovered(v),
+        账号快照: x.account ? accountText(x.account) : '',
+        占账号总获赞: x.share == null ? null : ratio4(x.share),
         发布时间: U.fmtDate(v.createTime),
         观察窗口: M.fmtDn(v.dn),
         采集时间: fmtTime(v.capturedAt),
@@ -115,10 +146,13 @@
         收藏率分档: M.tierLabel(v),
         转发率: ratio4(v.sr),
         评论率: ratio4(v.er),
+        评论区门槛词: x.comments ? commentsLine(x.comments) : '',
+        原评论: x.comments ? (x.comments.picks || []).slice(0, 5) : [],
         来源: '对标',
         有热度建议: heatHint(v),
         视频ID: v.id,
-      })),
+        };
+      }),
     }, null, 2);
   }
 

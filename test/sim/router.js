@@ -46,6 +46,8 @@ function createSim() {
   }
 
   const counters = { search: 0, post: 0, comment: 0, pages: 0 };
+  // 没在列表里出现过的视频（例如直接打开分享链接）：按 id 生成一条，并记住，详情接口和页面用同一份
+  const videoOf = (id) => registry.get(id) || remember([Object.assign(data.makeVideos(data.hashStr(id), 1)[0], { id })])[0];
 
   async function handle(route) {
     const req = route.request();
@@ -89,6 +91,9 @@ function createSim() {
       const slice = list.slice(cursor, cursor + count);
       return jsonRes({ status_code: 0, comments: slice.map(data.toApiComment), has_more: cursor + count < list.length ? 1 : 0, cursor: cursor + count, total: list.length });
     }
+    if (p.startsWith('/aweme/v1/web/aweme/detail')) return jsonRes({ status_code: 0, aweme_detail: data.toApiAweme(videoOf(url.searchParams.get('aweme_id') || '')) });
+    // 仿真专用：详情区 fiber 的数据（路径不像抖音接口，数据桥不会拦截）
+    if (p.startsWith('/sim/detail-fiber')) return jsonRes(data.toSearchFiber(videoOf(url.searchParams.get('aweme_id') || '')));
     if (p.startsWith('/aweme/')) return jsonRes({ status_code: 0 });
 
     counters.pages++;
@@ -105,8 +110,7 @@ function createSim() {
     }
     if (p.startsWith('/video/') || p.startsWith('/note/')) {
       const id = p.split('/')[2];
-      const v = registry.get(id) || data.makeVideos(data.hashStr(id), 1)[0];
-      return html(pages.videoPage(v));
+      return html(pages.videoPage(videoOf(id)));
     }
     if (p === '/' || p === '') return html(pages.homePage());
     return route.fulfill({ status: 404, contentType: 'text/plain', body: 'sim: not found' });

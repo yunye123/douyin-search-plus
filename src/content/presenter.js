@@ -71,6 +71,7 @@
     if (f.maxAgeDays) parts.push(f.maxAgeDays === 365 ? '近一年' : '近 ' + f.maxAgeDays + ' 天');
     if (f.kind === 'video') parts.push('只看视频');
     if (f.kind === 'note') parts.push('只看图文');
+    if (f.tier) parts.push('只看「' + M.CR_TIERS[f.tier].label + '」档');
     return parts.join('、');
   }
 
@@ -93,15 +94,20 @@
     if (o.health === 'recognizing') return [{ t: '正在读取结果…', tone: 'dim' }];
     if (o.health === 'fail') return [{ t: '抖音页面可能刚更新，插件暂时读不到结果', tone: 'warn' }];
     if (o.health === 'blocked') return [{ t: o.blocked === 'captcha' ? '抖音弹出了安全验证，请先手动完成' : '抖音要求登录，登录后才能继续读取', tone: 'warn' }];
-    if (o.loading) out.push({ t: '正在加载 ' + o.count + (o.cap ? ' / ' + o.cap : '') + ' 条', tone: 'em' });
-    else out.push({ t: '已读取 ' + o.count + ' 条', tone: '' });
+    // total：账号作品总数（主页能读到时）。没读全时写成"已读取 18 / 60 条"，提醒排名还不准
+    const of = o.total && o.total > o.count ? ' / ' + o.total : '';
+    if (o.loading) out.push({ t: '正在加载 ' + o.count + ' / ' + (o.total && o.total < o.cap ? o.total : o.cap) + ' 条', tone: 'em' });
+    // 排过序但没读全：直接在这一段说"排名还不准"，不另起一段
+    else out.push(of && o.sorted ? { t: '已读取 ' + o.count + of + ' 条，排名还不准', tone: 'warn' } : { t: '已读取 ' + o.count + of + ' 条', tone: '' });
     if (o.sorted) {
-      out.push({ t: o.sortText, tone: 'em' });
-      if (o.shown !== o.count) out.push({ t: '达标 ' + o.shown + ' 条', tone: '' });
+      // 当前看法已经写在"排序"按钮上，这里只说结果（避免状态句过长被截断）
+      if (o.sortText) out.push({ t: o.sortText, tone: 'em' });
+      out.push({ t: '达标 ' + o.shown + ' 条', tone: 'em' });
+      if (o.excludedHigh) out.push({ t: '另有 ' + o.excludedHigh + ' 条真需求没过线', tone: 'dim' });
     } else if (o.count) {
       out.push({ t: '真需求 ' + o.strongNeed + ' 条', tone: o.strongNeed ? 'em' : 'dim' });
     }
-    if (o.count && o.count < SAMPLE_LOW && !o.loading && !o.sorted) out.push({ t: '样本较少，建议继续加载', tone: 'dim' });
+    if (o.count && !o.loading && o.count < SAMPLE_LOW && !(of && o.sorted)) out.push({ t: o.sorted ? '样本少，排名还不准' : '样本较少，建议继续加载', tone: 'dim' });
     return out;
   }
 

@@ -134,6 +134,7 @@
     const push = (a) => { const r = normalizeAweme(a); if (r) out.push(r); };
     if (!json || typeof json !== 'object') return out;
     if (Array.isArray(json.aweme_list)) json.aweme_list.forEach(push);
+    if (json.aweme_detail && typeof json.aweme_detail === 'object') push(json.aweme_detail);
     if (Array.isArray(json.data)) {
       for (const it of json.data) {
         if (!it || typeof it !== 'object') continue;
@@ -151,6 +152,7 @@
     if (/\/aweme\/v\d+\/web\/comment\/list/.test(url)) return 'comments';
     if (/\/aweme\/v\d+\/web\/(general\/search|search\/(item|single|stream))/.test(url)) return 'search';
     if (/\/aweme\/v\d+\/web\/aweme\/(post|favorite)\//.test(url)) return 'profile';
+    if (/\/aweme\/v\d+\/web\/aweme\/detail\//.test(url)) return 'detail';
     return null;
   }
 
@@ -257,6 +259,11 @@
     }
     const items = [];
     for (const d of docs) items.push(...extractVideos(d));
+    // 单条视频详情：只用来在视频页显示这条的收藏率，不带翻页元数据
+    if (kind === 'detail') {
+      if (items.length) post({ type: 'videos', ctx: { source: 'api', endpoint: 'detail', path: location.pathname }, items });
+      return;
+    }
     // 翻页元数据（是否还有更多、接口状态）：给自动加载判断"到底了"还是"被拦了"
     const ctx = { source: 'api', endpoint: kind, path: location.pathname, meta: pageMeta(docs) };
     if (kind === 'search') {
@@ -355,6 +362,28 @@
     if (isOff() || !ready) return;
     harvestComments();
     harvestCards();
+    harvestDetail();
+  }
+
+  // 视频详情页 / 视频弹层：从详情区的 fiber 读这条视频（从分享链接直接打开也能显示收藏率）。
+  // 读到一次就不再读；读不到时每次扫描再试（只看几个节点，开销很小）
+  let detailDone = '';
+  function currentVideoId() {
+    const m = /^\/(?:video|note)\/(\d{8,25})/.exec(location.pathname);
+    if (m) return m[1];
+    const q = /[?&]modal_id=(\d{8,25})/.exec(location.search);
+    return q ? q[1] : '';
+  }
+  function harvestDetail() {
+    const id = currentVideoId();
+    if (!id || detailDone === id) return;
+    for (const el of document.querySelectorAll('[data-e2e="detail-video-info"], [data-e2e="video-detail"], [data-e2e="player-container"]')) {
+      const rec = fiberRecord(el, id) || (el.parentElement && fiberRecord(el.parentElement, id));
+      if (!rec) continue;
+      detailDone = id;
+      post({ type: 'videos', ctx: { source: 'fiber', endpoint: 'detail', path: location.pathname }, items: [rec] });
+      return;
+    }
   }
 
   function harvestCards() {

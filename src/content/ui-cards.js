@@ -9,9 +9,12 @@
   const U = DSP.util, M = DSP.metrics;
 
   const CARD_CSS = `
-:host { all: initial; position: absolute !important; top: 8px; right: 8px; z-index: 6; display: block; pointer-events: none;
+:host { all: initial; position: absolute !important; top: 8px; right: 8px; max-width: calc(100% - 16px); z-index: 6; display: block; pointer-events: none;
   font: 600 12px/22px "PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif; font-variant-numeric: tabular-nums; }
 .row { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.row > * { flex-shrink: 0; white-space: nowrap; }
+.row2 { display: flex; justify-content: flex-end; margin-top: 4px; }
+.row2 .why { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .rank { pointer-events: auto; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 7px; text-align: center; color: #fff;
   background: rgba(12, 13, 20, 0.62); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); }
 .rank.top { background: #E3173F; box-shadow: none; }
@@ -19,6 +22,8 @@
   background: rgba(12, 13, 20, 0.62); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.13); cursor: default; border: 0; font: inherit; white-space: nowrap; }
 .chip:focus-visible, .cand:focus-visible { outline: 2px solid #25F4EE; outline-offset: 2px; }
 .chip.dim { opacity: .9; }
+/* 没进这次排序的原因（图文 / 发布超过 1 年 / Top10 之外…），变暗的卡上直接看得到 */
+.why { pointer-events: none; height: 22px; padding: 0 7px; border-radius: 7px; color: #EDEDF0; background: rgba(12, 13, 20, 0.78); box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); font-weight: 500; white-space: nowrap; }
 .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .lbl { color: rgba(237,237,240,.72); font-weight: 500; }
 .high { background: #25F4EE; color: #04262B; box-shadow: none; }
@@ -115,7 +120,7 @@
       '。回车看详情' + (ctx.rank ? '，上下方向键按名次跳转' : '');
     const chip = h('button', {
       class: 'chip ' + tier + (ctx.dimReason ? ' dim' : ''), type: 'button', 'aria-label': label,
-      onclick: (e) => { e.preventDefault(); e.stopPropagation(); ctx.onDetail(v, chip, true); },
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); ctx.onDetail(v, chip, true, ctx.dimReason); },
     });
     chip.appendChild(h('span', { class: 'dot' }));
     if (tier === 'na') chip.appendChild(h('span', null, M.tierLabel(v)));
@@ -124,7 +129,7 @@
       chip.appendChild(h('span', { class: 'v' }, U.fmtPct(v.cr)));
     }
     // 鼠标：悬停 400ms 出详情卡；键盘：聚焦不自动弹（避免抢焦点），回车才打开
-    chip.addEventListener('pointerenter', () => ctx.onDetail(v, chip, false));
+    chip.addEventListener('pointerenter', () => ctx.onDetail(v, chip, false, ctx.dimReason));
     chip.addEventListener('pointerleave', () => ctx.onLeave());
     chip.addEventListener('keydown', (e) => {
       if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && ctx.onNav) { e.preventDefault(); e.stopPropagation(); ctx.onNav(v.id, e.key === 'ArrowDown' ? 1 : -1); }
@@ -132,6 +137,8 @@
     // 在 li 上的点击不会穿透到抖音（按钮已阻止冒泡），整卡点击仍交给抖音打开视频
     row.appendChild(chip);
     a.root.appendChild(row);
+    // 没进排序的原因放在第二行：卡片窄时不和候选、名次、收藏率挤在一行
+    if (ctx.dimReason) a.root.appendChild(h('div', { class: 'row2' }, h('span', { class: 'why', 'aria-hidden': 'true' }, ctx.dimReason)));
     if (focused) { const f = a.root.querySelector('.' + focused); if (f) f.focus({ preventScroll: true }); }
   }
   // 聚焦某张卡的收藏率标签（键盘按名次跳转用）
@@ -188,6 +195,7 @@
       na: '样本太少，先看评论和同类视频再判断。',
     };
     box.appendChild(h('div', { class: 'dd-verdict v-' + tier }, verdicts[tier]));
+    if (opts.dimReason) box.appendChild(h('div', { class: 'dd-why' }, '没进这次排序：' + opts.dimReason));
     const isCand = opts.isCand;
     const candBtn = h('button', { class: 'dd-btn' + (isCand ? ' on' : ''), type: 'button', 'data-autofocus': '', 'aria-pressed': isCand ? 'true' : 'false',
       onclick: () => { opts.onToggleCand(v.id, candBtn); } }, icon('star', 16), isCand ? '已在候选篮' : '加入候选');
@@ -211,11 +219,18 @@
       box.addEventListener('pointerenter', () => clearTimeout(detail.hideT));
       box.addEventListener('pointerleave', () => { if (!detail.pinned) scheduleHide(); });
       box.addEventListener('focusin', () => clearTimeout(detail.hideT));
+      // 在首尾按钮上 Tab 出去：关卡并把焦点还给标签（详情卡在 DOM 里离标签很远，不处理会掉到页面顶部或最底部）
+      box.addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        const items = [...box.querySelectorAll('button')];
+        const act = box.getRootNode().activeElement;
+        if ((e.shiftKey && act === items[0]) || (!e.shiftKey && act === items[items.length - 1])) { e.preventDefault(); hideDetail(true, true); }
+      });
       box.addEventListener('focusout', (e) => {
         const to = e.relatedTarget;
         if (to && (box.contains(to) || to === anchor)) return;
-        // 焦点离开详情卡（Tab 出去），关掉但不抢回焦点
-        setTimeout(() => { if (detail.el === box && !box.contains(box.getRootNode().activeElement)) hideDetail(true, false); }, 0);
+        // 焦点离开详情卡（例如点到别处），关掉；钉住的卡把焦点还给标签
+        setTimeout(() => { if (detail.el === box && !box.contains(box.getRootNode().activeElement)) hideDetail(true, !to); }, 0);
       });
       layer.appendChild(box);
       // 标签在卡片右上角：详情卡优先放卡片右侧，放不下放左侧；顶边与标签对齐
@@ -285,10 +300,13 @@
 .dd-btn { flex: 1; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: var(--r-btn); background: var(--s3); font-weight: 600; }
 .dd-btn:hover { background: #44465A; }
 .dd-btn.on { color: var(--gold); }
+:host([data-theme="light"]) .dd-btn.on { color: #8A5A00; }
+:host([data-theme="light"]) .dd-btn.on svg { fill: #8A5A00; }
 .dd-btn.on svg { fill: var(--gold); }
 .dd-btn.ghost { background: transparent; box-shadow: inset 0 0 0 1px var(--line2); font-weight: 500; color: var(--t2); }
 .dd-btn.ghost:hover { color: var(--t1); background: var(--line); }
 :host([data-theme="light"]) .dd-btn:hover { background: #DDDDE4; }
+.dd-why { margin-top: 6px; padding: 6px 10px; border-radius: 8px; background: rgba(128,129,145,.14); color: var(--t2); font-size: 12px; line-height: 18px; }
 .dd-foot { margin-top: 10px; color: var(--t3); font-size: 11px; line-height: 16px; }
 @media (prefers-reduced-motion: reduce) { .dsp-detail { transform: none !important; transition: opacity 80ms linear; } }
 `;

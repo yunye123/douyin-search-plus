@@ -7,7 +7,7 @@
 /* 原地重排：卡片用 style.order 排；列表里不是作品卡的子节点（直播卡、骨架屏、加载占位）统一排最后 */
 .dsp-sorted > * { order: 99999; }
 /* 块级列表（例如主页网格）排序时临时改成固定列数的 CSS 网格，列数、卡宽、间距按原布局量出 */
-.dsp-grid { display: grid !important; grid-template-columns: repeat(var(--dsp-cols), var(--dsp-cw)) !important;
+.dsp-grid { display: grid !important; grid-template-columns: repeat(var(--dsp-cols), minmax(0, 1fr)) !important;
   column-gap: var(--dsp-cg) !important; row-gap: var(--dsp-rg) !important; justify-content: start !important; align-items: start !important; }
 .dsp-grid > * { margin: 0 !important; width: auto !important; }
 
@@ -28,7 +28,8 @@
 
 /* 插件自己的宿主节点 */
 #dsp-dock { display: block; position: sticky; z-index: 20; margin: -8px 0 16px 0; padding-top: 8px; background: var(--dsp-page-bg, #161722); }
-#dsp-cbar { display: block; position: sticky; top: 0; z-index: 5; }
+#dsp-cbar { display: block; position: sticky; top: 0; z-index: 5; padding-top: 8px; background: var(--dsp-cbar-bg, transparent); }
+#dsp-guide { display: block; margin: -4px 0 16px; }
 #dsp-root { position: fixed; inset: 0 auto auto 0; width: 0; height: 0; z-index: 2147483000; }
 
 @media (prefers-reduced-motion: reduce) {

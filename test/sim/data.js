@@ -118,6 +118,7 @@ function toProfileFiber(v) {
     authorInfo: { nickname: v.author },
     statistics: { diggCount: v.digg, commentCount: v.comment, collectCount: v.collect, shareCount: v.share },
     video: v.isNote ? null : { duration: v.durMs, cover: coverUrl(v) },
+    images: v.isNote ? [{ url: coverUrl(v) }] : null,
   };
 }
 

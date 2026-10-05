@@ -73,7 +73,7 @@
     for (const x of [ui.root && ui.root.el, ui.dock && ui.dock.el, ui.cbar && ui.cbar.el]) if (x && x.dataset.theme !== theme) x.dataset.theme = theme;
     // 其余情况只在需要随时间变化时重画：识别中（6 秒后会变成"读不到"）、注水兜底计时、加载中；另外每 5 秒保底一次
     ui.tick = (ui.tick || 0) + 1;
-    if (changed || ui.lastHealth === 'recognizing' || !ui.dock || listLoader.running || ui.tick % 5 === 0) schedule();
+    if (changed || ui.lastHealth === 'recognizing' || !ui.dock || listLoader.running || CE.state.mode || CE.state.highlight || ui.tick % 5 === 0) schedule();
   }
 
   // ---------------- 总开关 ----------------
@@ -100,6 +100,8 @@
     if (ui.dock) { ui.dock.el.remove(); ui.dock = null; ui.bar = null; }
     if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
     if (ui.observer) { ui.observer.disconnect(); ui.observed = null; }
+    observeComments(null);
+    if (ui.guideHost) { ui.guideHost.el.remove(); ui.guideHost = null; }
     ui.guide = null;
   }
   function setEnabled(on) {
@@ -118,8 +120,23 @@
     cap: capFor,
     blocked: () => A.blockingReason(),
     hasMore: () => { const m = DSP.meta[isProfile() ? 'profile' : 'search']; return m ? m.hasMore : undefined; },
-    scroll: (round) => { const cards = ui.listEl ? A.cardsOf(ui.listEl) : []; L.scrollToEnd(cards.length ? cards[cards.length - 1].el : null, round); },
-    onChange: (st) => { schedule(); if (!st.running && st.reason && st.reason !== 'route') announce(st.message(), st.reason === 'login' || st.reason === 'captcha' || st.reason === 'stalled' ? 'warn' : ''); },
+    // 排过序时 DOM 里最后一张卡不一定在屏幕最下面：滚向视觉上最低的那张，才能触发抖音翻页
+    scroll: (round) => {
+      const cards = ui.listEl ? A.cardsOf(ui.listEl) : [];
+      let last = cards.length ? cards[cards.length - 1].el : null;
+      if (IP.S.applied && cards.length) {
+        let maxB = -Infinity;
+        for (const c of cards) { const b = c.el.getBoundingClientRect().bottom; if (b > maxB) { maxB = b; last = c.el; } }
+      }
+      L.scrollToEnd(last, round);
+    },
+    onChange: (st) => {
+      schedule();
+      if (st.running || !st.reason || st.reason === 'route') return;
+      const tone = st.reason === 'login' || st.reason === 'captcha' || st.reason === 'stalled' ? 'warn' : '';
+      // 加载完停在页面最底下；排过序的话给一个"回到第 1 名"
+      announce(st.message(), tone, S.view.active ? { label: '看排名', run: scrollToListTop } : null);
+    },
   });
   const commentLoader = L.create({
     count: () => A.commentRows().length,
@@ -127,7 +144,8 @@
     blocked: () => A.blockingReason(),
     hasMore: () => (DSP.meta.comments ? DSP.meta.comments.hasMore : undefined),
     // 评论区没了（例如关掉了视频弹层）就停，绝不退回去滚动整个页面
-    scroll: () => { const list = A.commentList(); const sc = list && A.scrollerOf(list); if (sc) sc.scrollTop = sc.scrollHeight; else if (list) list.lastElementChild && list.lastElementChild.scrollIntoView({ block: 'end' }); else commentLoader.stop('route'); },
+    // 只滚评论所在的那个容器；评论在弹层里时 scrollerOf 不会越过弹层，背后的页面不动
+    scroll: () => { const list = A.commentList(); if (!list) return commentLoader.stop('route'); const sc = A.scrollerOf(list); if (sc) sc.scrollTop = sc.scrollHeight; },
     onChange: (st) => { schedule(); if (!st.running && st.reason && st.reason !== 'route') announce(st.reason === 'end' || st.reason === 'cap' ? '评论读完了，共 ' + A.commentRows().length + ' 条' : st.message(), st.reason === 'login' || st.reason === 'captcha' ? 'warn' : ''); },
     delay: [1200, 2600],
   });
@@ -140,6 +158,31 @@
     toast(ui.layer, msg, { tone, action });
   }
   const inView = (el) => { const r = el.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; };
+
+  // 把结果列表的顶部（第 1 名）滚到吸顶工具栏下方
+  function dockBottom() { return ui.dock && ui.dock.el.isConnected ? ui.dock.el.getBoundingClientRect().bottom : (ui.headerTop || 0); }
+  function scrollToListTop() {
+    if (!ui.listEl || !ui.listEl.isConnected) return;
+    const delta = ui.listEl.getBoundingClientRect().top - (Math.max(dockBottom(), (ui.headerTop || 0) + 56) + 8);
+    if (Math.abs(delta) < 4) return;
+    const sc = A.scrollerOf(ui.listEl);
+    const behavior = kit.reducedMotion() ? 'auto' : 'smooth';
+    if (sc && !A.isDocScroller(sc)) sc.scrollBy({ top: delta, behavior });
+    else window.scrollBy({ top: delta, behavior });
+  }
+  // 名次跳转：按键时现查卡片和视觉顺序（不用闭包里的旧顺序），焦点不被吸顶工具栏挡住
+  ui.nav = (id, dir) => {
+    if (!ui.listEl) return;
+    const cards = A.cardsOf(ui.listEl);
+    if (IP.S.applied) cards.sort((a, b) => (+a.el.style.order || 0) - (+b.el.style.order || 0));
+    const i = cards.findIndex((c) => c.id === id);
+    const next = cards[i + dir];
+    if (!next) return;
+    C.focusChip(next.el);
+    const r = next.el.getBoundingClientRect();
+    const db = dockBottom();
+    if (r.top < db + 8) window.scrollBy(0, r.top - db - 12);
+  };
 
   // ---------------- 主更新 ----------------
   function update() {
@@ -157,6 +200,7 @@
 
   function removeDock() {
     if (ui.dock) { ui.dock.el.remove(); ui.dock = null; ui.bar = null; }
+    if (ui.guideHost) { ui.guideHost.el.remove(); ui.guideHost = null; ui.guide = null; }
     if (IP.S.applied) IP.restore();
     C.removeAll();
     ui.listEl = null;
@@ -191,6 +235,15 @@
     ui.observed = el;
   }
 
+  function observeComments(list) {
+    if (ui.cObserved === list) return;
+    if (ui.cObserver) ui.cObserver.disconnect();
+    ui.cObserved = list;
+    if (!list) return;
+    ui.cObserver = new MutationObserver(() => schedule());
+    ui.cObserver.observe(list, { childList: true });
+  }
+
   function updateList(type) {
     const located = A.locateList(type);
     ui.listEl = located ? located.el : null;
@@ -205,6 +258,8 @@
     const d = store.derived();
     const base = ids ? ids.map((id) => d.byId.get(id)).filter(Boolean) : d.list;
     const tiers = P.tierCounts(base);
+    // 给扩展弹窗用的计数（和工具栏同一口径），带上会话签名，换关键词后不会读到旧数
+    ui.counts = { session: S.session, count: ids ? base.length : S.videos.size, strongNeed: tiers.high };
     const sorted = S.view.sortKeys.length > 0;
     const active = S.view.active;
     const lens = P.matchLens(S.view);
@@ -218,7 +273,8 @@
     // 工具栏挂载：列表的前一个兄弟节点；找不到列表时不挂（交给启动器显示状态）
     let docked = false;
     if (located && hydrated()) {
-      ui.dock = host('dsp-dock', located.el.parentElement, located.el);
+      const before = ui.guideHost && ui.guideHost.el.isConnected && ui.guideHost.el.parentNode === located.el.parentElement ? ui.guideHost.el : located.el;
+      ui.dock = host('dsp-dock', located.el.parentElement, before);
       if (!ui.bar || !ui.bar.bar.isConnected) {
         ui.bar = T.buildBar(barApi);
         const lay = ui.dock.root.querySelector('.dsp-layer') || ui.dock.root.appendChild(h('div', { class: 'dsp-layer' }));
@@ -251,12 +307,15 @@
       IP.restore();
     }
 
+    // 主页页头的账号数据每次现读：SPA 换博主时页头可能晚于地址更新，缓存会留下上一位的获赞
+    if (type === 'profile') S.profileStats = A.profileStats();
+
     // 卡片角标
+    const rank = new Map();
+    if (sorted) orderIds.forEach((id, i) => rank.set(id, i + 1));
+    ui.rank = rank;
+    ui.topN = topN;
     if (located && S.settings.badges) {
-      const rank = new Map();
-      if (sorted) orderIds.forEach((id, i) => rank.set(id, i + 1));
-      const likes = type === 'profile' ? (S.profileStats || (S.profileStats = A.profileStats())) : null;
-      const byEl = new Map(cards.map((c) => [c.id, c.el]));
       for (const card of cards) {
         const v = d.byId.get(card.id);
         if (!v) continue;
@@ -265,20 +324,18 @@
           v, rank: r, rankMuted: !!(topN && r > topN), isCand: S.candidates.has(card.id),
           dimReason: active && dimIds.has(card.id) ? (topN && r > topN ? 'Top10 之外' : M.failReason(v, S.view.filter)) : '',
           onToggleCand: (id, btn) => toggleCandidate(id, btn),
-          onDetail: (vv, anchor, pinned) => C.showDetail(ui.layer, vv, anchor, {
-            isCand: S.candidates.has(vv.id), cardEl: card.el,
-            share: likes && likes.likes ? vv.digg / likes.likes : null,
+          onDetail: (vv, anchor, pinned, dimReason) => {
+            const ps = type === 'profile' ? A.profileStats() : null; // 打开时现读
+            C.showDetail(ui.layer, vv, anchor, {
+            isCand: S.candidates.has(vv.id), cardEl: card.el, dimReason,
+            share: ps && ps.likes && vv.digg != null ? vv.digg / ps.likes : null,
             onToggleCand: (id, b) => { toggleCandidate(id, b); C.hideDetail(true, true); },
             onCopyLink: (x) => { copy(E.videoUrl(x), '链接已复制'); C.hideDetail(true, true); },
-          }, pinned),
-          onLeave: () => C.scheduleHide(),
-          // 键盘：在收藏率标签上按 ↑↓ 按名次跳到上一张/下一张
-          onNav: (id, dir) => {
-            const list = sorted ? orderIds : cards.map((c) => c.id);
-            const i = list.indexOf(id);
-            const next = list[i + dir];
-            if (next && byEl.get(next)) C.focusChip(byEl.get(next));
+            }, pinned);
           },
+          onLeave: () => C.scheduleHide(),
+          // 键盘：在收藏率标签上按 ↑↓ 按名次跳到上一张/下一张（按键时现查顺序）
+          onNav: (id, dir) => ui.nav(id, dir),
         });
       }
       C.prune();
@@ -298,18 +355,22 @@
         loading: listLoader.running, cap: capFor(),
         candidates: S.candidates.size,
         tiers, tierFilter: S.view.filter.tier, layer: ui.layer,
-        onTier: (k) => { store.setFilter(Object.assign({}, S.view.filter, { tier: S.view.filter.tier === k ? '' : k })); },
+        onTier: (k) => onTier(k),
         sortShort: lens ? lens.label : sorted ? S.view.sortKeys.map((k) => M.METRICS[k].label).join('+') + (S.view.asc ? ' ↑' : '') : '',
       };
+      // 主页：账号作品总数（"已读取 18 / 60 条"）；真需求里有多少没过达标线（例如图文）
+      const works = type === 'profile' && S.profileStats ? S.profileStats.works : 0;
+      const passSet = new Set(view.sorted.map((x) => x.v.id));
+      const excludedHigh = active ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
       vm.status = P.statusLine({
-        health, blocked, count: vm.count, strongNeed: tiers.high, sorted: active,
-        sortText: lens ? '按「' + lens.label + '」排序' : sorted ? P.sortText(S.view.sortKeys, S.view.asc) : '达标线：' + P.filterText(S.view.filter),
-        shown: passCount, loading: vm.loading, cap: vm.cap,
+        health, blocked, count: vm.count, total: works, strongNeed: tiers.high, sorted: active,
+        // 看法和指标已经写在"排序"按钮上；只有纯达标线时才在状态句里说明条件
+        sortText: !sorted ? '达标线：' + P.filterText(S.view.filter) : '',
+        shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh,
       });
       if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果过达标线', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
-      if (topN && view.sorted.length > topN) vm.status.push({ t: '另有 ' + (view.sorted.length - topN) + ' 条在 Top10 之外', tone: 'dim' });
       T.renderBar(ui.bar, vm);
-      ui.vm = Object.assign(vm, { passCount, view, base, lens });
+      ui.vm = Object.assign(vm, { passCount, view, base, lens, topN });
     }
     if (health !== ui.lastHealth) { ui.lastHealth = health; }
     return { health, docked, count: S.videos.size };
@@ -350,15 +411,22 @@
       if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
       if (CE.state.applied) CE.restore();
       if (commentLoader.running) commentLoader.stop('route'); // 评论区收起或换了面板：停，绝不替用户滚页面
+      observeComments(null);
       return;
     }
     if (!hydrated()) return;
+    observeComments(list);
     ui.cbar = host('dsp-cbar', list.parentElement, list);
     // 评论在独立的滚动面板里：吸在面板顶部；评论在页面主滚动里：吸在抖音顶栏下面
     const ctop = A.isDocScroller(A.scrollerOf(list)) ? (ui.headerTop || 0) + 'px' : '0px';
     if (ui.cbar.el.style.top !== ctop) ui.cbar.el.style.top = ctop;
     if (!ui.theme) ui.theme = A.pageTheme();
     if (ui.cbar.el.dataset.theme !== ui.theme) ui.cbar.el.dataset.theme = ui.theme;
+    // 吸顶时上方留 8px，用评论面板自己的底色填满（不被顶栏压住边框，滚动的评论也不会从缝里露出来）
+    if (ui.cbarBgList !== list || ui.cbarBgTheme !== ui.theme || !ui.cbar.el.style.getPropertyValue('--dsp-cbar-bg')) {
+      ui.cbarBgList = list; ui.cbarBgTheme = ui.theme;
+      ui.cbar.el.style.setProperty('--dsp-cbar-bg', A.bgOf(list.parentElement) || (ui.theme === 'light' ? '#ffffff' : '#161722'));
+    }
     if (!ui.cb || !ui.cb.box.isConnected) {
       ui.cb = CB.build(commentApi);
       const lay = ui.cbar.root.querySelector('.dsp-layer') || ui.cbar.root.appendChild(h('div', { class: 'dsp-layer' }));
@@ -373,7 +441,13 @@
     const all = [...S.comments.map.values()];
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
     const m = DSP.meta.comments;
+    const vid = S.route.modalId || S.route.awemeId || '';
+    const raw = store.findVideo(vid);
+    const video = raw ? M.derive(raw, Date.now() / 1000) : null;
+    const cand = S.candidates.get(vid);
+    ui.commentStats = stats;
     CB.render(ui.cb, {
+      video, isCand: !!cand, candHasComments: !!(cand && cand.extra && cand.extra.comments),
       mode: CE.state.mode, highlight: CE.state.highlight, hits: ui.commentHits || 0, cursor: ui.commentCursor,
       loaded: Math.max(rows.length, S.comments.map.size), total: S.comments.total,
       loading: commentLoader.running, done: !!(m && m.hasMore === false && !commentLoader.running && rows.length >= S.comments.map.size),
@@ -394,6 +468,19 @@
 
   const commentApi = {
     layer: () => ui.layer,
+    // 从视频页加入候选：连同评论区门槛词计数和挑出的原评论（高亮中的命中，否则当前排序前 5 条）
+    addVideo: () => {
+      const vid = S.route.modalId || S.route.awemeId || '';
+      const k = CE.state.highlight;
+      const all = CE.collected();
+      const picks = (k ? all.filter((c) => E.barrierHits(c.text).includes(k)) : all).slice(0, 5).map((c) => c.text);
+      const rows = A.commentRows().length;
+      const comments = { stats: ui.commentStats || {}, loaded: Math.max(rows, S.comments.map.size), total: S.comments.total, picks };
+      const had = S.candidates.has(vid);
+      if (!store.addCandidate(vid, { comments })) return announce('没找到这条视频的数据：从搜索结果或博主主页点进来再试', 'warn');
+      announce(had ? '已更新这条候选的评论结论' : '已加入候选篮（含评论结论）· 共 ' + S.candidates.size + ' 条');
+      schedule();
+    },
     setMode: (m) => { CE.setMode(m); ui.commentSig = ''; schedule(); },
     // 点一格：高亮命中的评论，并把第 1 条滚到视野中间闪一下（"1/N"名副其实）
     setHighlight: (k) => {
@@ -437,7 +524,7 @@
     version,
     loading: () => listLoader.running,
     cap: capFor,
-    resetView: () => { store.resetView(); announce('已恢复抖音原来的顺序'); },
+    resetView: () => { store.resetView(); announce('已恢复抖音原来的顺序'); requestAnimationFrame(() => { update(); scrollToListTop(); }); },
     retry: () => { ui.routeAt = Date.now(); if (DSP.requestRescan) DSP.requestRescan(); schedule(); },
     copyDiagnostics: (btn) => copyDiagnostics(btn),
     toggleLoad: () => {
@@ -460,6 +547,7 @@
       store.setFilter(l.filter || {});
       store.setSort(l.sort, false);
       announce('已按「' + l.label + '」排好：' + l.desc);
+      requestAnimationFrame(() => { update(); scrollToListTop(); }); // 第 1 名滚到工具栏下面
     },
     toggleMetric: (k) => {
       let keys = S.view.sortKeys.slice();
@@ -479,14 +567,22 @@
     clearFilter: () => store.setFilter({}),
     updateFilterHead: (panel) => { update(); T.updateFilterHead(panel, ui.vm || { passCount: 0, count: 0 }); },
     exportView: (fmt) => {
-      const list = ui.vm ? (S.view.active ? ui.vm.view.sorted.map((x) => x.v) : ui.vm.base) : [];
+      let list = ui.vm ? (S.view.active ? ui.vm.view.sorted.map((x) => x.v) : ui.vm.base) : [];
+      if (ui.vm && ui.vm.topN) list = list.slice(0, ui.vm.topN); // 账号 Top10 只导出前 10（序号即名次）
       if (!list.length) return announce('还没有可导出的结果', 'warn');
       if (fmt === 'csv') { E.download(E.safeName('抖音_' + (S.sessionLabel || '结果')) + '_' + U.fmtDate(Date.now() / 1000) + '.csv', E.toCsv(list)); announce('已下载 ' + list.length + ' 条'); }
       else copy(E.toTsv(list), '已复制 ' + list.length + ' 条，可以直接粘贴到飞书或 Excel');
     },
     toggleBadges: () => { store.saveSettings({ badges: !S.settings.badges }); },
-    showGuide: () => { store.saveSettings({ guideDone: false }); if (ui.guide) { ui.guide.remove(); ui.guide = null; } schedule(); },
-    toggleCustom: () => { ui.customOpen = !ui.customOpen; reopen(); },
+    // 把排在前面的 N 条一次加入候选（带上名次和看法）
+    addTop: (n) => {
+      const ids = (ui.vm ? ui.vm.view.sorted.map((x) => x.v.id) : []).slice(0, n).filter((id) => !S.candidates.has(id));
+      if (!ids.length) return announce('前 ' + n + ' 条都已经在候选篮里了');
+      for (const id of ids) store.addCandidate(id, extraFor(id));
+      announce('已把 ' + ids.length + ' 条加入候选篮 · 共 ' + S.candidates.size + ' 条', '', { label: '撤销', run: () => store.removeCandidates(ids) });
+    },
+    showGuide: () => { store.saveSettings({ guideDone: false }); schedule(); },
+    toggleCustom: (open) => { ui.customOpen = open; reopen(); },
     pause: () => {
       setEnabled(false);
       announce('插件已暂停，抖音页面已还原', '', { label: '撤销', run: () => setEnabled(true) });
@@ -499,8 +595,8 @@
     const vm = popVm();
     let panel, opts = { layer: ui.layer, onClose: () => { if (ui.pop && ui.pop.panel === panel) ui.pop = null; } };
     if (kind === 'sort') { panel = T.sortPanel(vm, barApi); opts.label = '排序'; }
-    else if (kind === 'filter') { panel = T.filterPanel(vm, barApi); opts.label = '门槛'; }
-    else if (kind === 'more') { panel = T.morePanel(vm, barApi); opts.label = '更多'; opts.role = 'menu'; opts.placement = 'below-end'; }
+    else if (kind === 'filter') { panel = T.filterPanel(vm, barApi); opts.label = '达标线'; }
+    else if (kind === 'more') { panel = T.morePanel(vm, barApi); opts.label = '更多'; opts.placement = 'below-end'; }
     else if (kind === 'basket') { panel = B.panel(basketApi); opts.label = '候选篮'; opts.placement = 'none'; }
     if (kind === 'sort' || kind === 'filter') opts.placement = 'below-end';
     popover(anchor, panel, opts);
@@ -538,19 +634,51 @@
   function popVm() {
     const v = ui.vm || {};
     return {
-      type: S.route.type, lens: v.lens ? v.lens.key : '', sortKeys: S.view.sortKeys, asc: S.view.asc, combo: ui.combo,
+      type: S.route.type, lens: v.lens ? v.lens.key : '', sortKeys: S.view.sortKeys, sorted: S.view.sortKeys.length > 0, asc: S.view.asc, combo: ui.combo,
       filter: S.view.filter, passCount: v.passCount || 0, count: v.count || 0, badges: S.settings.badges,
-      lowSample: (v.tiers && v.tiers.na) || 0, customOpen: !!ui.customOpen,
+      lowSample: (v.tiers && v.tiers.na) || 0, customOpen: ui.customOpen == null ? null : ui.customOpen,
     };
   }
 
+  // 点分布条的一段：只看这一档。和当前看法自带的收藏率条件冲突时（例如真需求要求 ≥80%，却点了"一般"），
+  // 去掉那条收藏率条件并说清楚，不叠加出一个必然为空的结果
+  function onTier(k) {
+    const f = S.view.filter;
+    if (f.tier === k) { store.setFilter(Object.assign({}, f, { tier: '' })); return; }
+    const patch = { tier: k };
+    let note = '';
+    if (f.minCr && k !== 'high') { patch.minCr = 0; note = '，已去掉「收藏率 ≥ 80%」'; }
+    store.setFilter(Object.assign({}, f, patch));
+    announce('只看「' + M.CR_TIERS[k].label + '」档' + note);
+    scrollToListTop();
+  }
+
   // ---------------- 候选篮 ----------------
+  // 加入候选时记下上下文：名次与看法、账号快照、占账号总获赞（入库包里会写出来）
+  function extraFor(id) {
+    const x = {};
+    const r = ui.rank && ui.rank.get(id);
+    if (r && S.view.sortKeys.length) {
+      x.rank = r;
+      const lens = P.matchLens(S.view);
+      x.lensLabel = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
+    }
+    if (S.route.type === 'profile') {
+      const ps = A.profileStats();
+      if (ps) {
+        x.account = Object.assign({ at: Date.now() / 1000 }, ps);
+        const v = store.derived().byId.get(id);
+        if (v && ps.likes && v.digg != null) x.share = v.digg / ps.likes;
+      }
+    }
+    return x;
+  }
   function toggleCandidate(id, btn) {
     if (S.candidates.has(id)) {
       const keep = S.candidates.get(id);
       store.removeCandidate(id);
       announce('已移出候选篮', '', { label: '撤销', run: () => store.restoreCandidates([[id, keep]]) });
-    } else if (store.addCandidate(id)) {
+    } else if (store.addCandidate(id, extraFor(id))) {
       announce('已加入候选篮 · 共 ' + S.candidates.size + ' 条', '', { label: '撤销', run: () => store.removeCandidate(id) });
     }
     schedule();
@@ -564,19 +692,38 @@
       reopen();
       announce('候选篮已清空', '', { label: '撤销', run: () => store.restoreCandidates(backup) });
     },
-    markdown: () => E.toMarkdown(store.candidateList(), { now: Date.now() / 1000 }),
-    copy: (fmt, btn) => {
-      const list = store.candidateList();
+    markdown: () => E.toMarkdown(toCopy(), { now: Date.now() / 1000 }),
+    // 默认只复制还没复制过的；all=true 时全部再复制一次。复制后标记"已复制"，提示里可以一键移出
+    copy: async (fmt, btn, all) => {
+      const list = all ? store.candidateList() : toCopy();
       const text = fmt === 'md' ? E.toMarkdown(list, { now: Date.now() / 1000 }) : fmt === 'json' ? E.toJson(list, { now: Date.now() / 1000 }) : E.toTsv(list);
-      copy(text, fmt === 'md' ? '入库包已复制：粘贴给 Agent，说「添加选题」' : fmt === 'json' ? '已复制 JSON' : '已复制，可以直接粘贴到飞书或 Excel', btn);
+      const ok = await copy(text, null, btn);
+      if (!ok) return;
+      const ids = list.map((v) => v.id);
+      store.markCopied(ids);
+      reopen();
+      const what = fmt === 'md' ? '入库包已复制（' + ids.length + ' 条）：粘贴给 Agent，说「添加选题」' : fmt === 'json' ? '已复制 JSON（' + ids.length + ' 条）' : '已复制 ' + ids.length + ' 条，可以直接粘贴到飞书或 Excel';
+      announce(what, '', { label: '移出这 ' + ids.length + ' 条', run: () => {
+        const backup = ids.map((id) => [id, S.candidates.get(id)]).filter((e) => e[1]);
+        store.removeCandidates(ids);
+        reopen();
+        announce('已移出 ' + backup.length + ' 条', '', { label: '撤销', run: () => { store.restoreCandidates(backup); reopen(); } });
+      } });
     },
     downloadCsv: () => { const list = store.candidateList(); E.download('选题候选_' + U.fmtDate(Date.now() / 1000) + '.csv', E.toCsv(list)); announce('已下载 ' + list.length + ' 条'); },
   };
+  function toCopy() {
+    const all = store.candidateList();
+    const fresh = all.filter((c) => !c.copiedAt);
+    return fresh.length ? fresh : all;
+  }
 
   async function copy(text, msg, btn) {
     const ok = await E.copyText(text);
-    announce(ok ? msg : '复制失败：浏览器没有给剪贴板权限，可以改用下载', ok ? '' : 'warn');
-    if (ok && btn && btn.animate && !kit.reducedMotion()) btn.animate([{ transform: 'scale(1)' }, { transform: 'scale(.96)' }, { transform: 'scale(1)' }], { duration: 180 });
+    if (!ok) announce('复制失败：浏览器没有给剪贴板权限，可以改用下载', 'warn');
+    else if (msg) announce(msg);
+    if (ok && btn && btn.isConnected && btn.animate && !kit.reducedMotion()) btn.animate([{ transform: 'scale(1)' }, { transform: 'scale(.96)' }, { transform: 'scale(1)' }], { duration: 180 });
+    return ok;
   }
 
   function copyDiagnostics(btn) {
@@ -588,9 +735,16 @@
   // ---------------- 首次引导 ----------------
   // 工具栏下方的一条横条（在页面流里，不浮在卡片和弹层上）；点"知道了"或第一次用排序看法后不再出现
   function renderGuide(health) {
-    const want = !S.settings.guideDone && health === 'ok' && ui.bar;
-    const lay = ui.dock && ui.dock.root.querySelector('.dsp-layer');
-    if (!want || !lay) { if (ui.guide) { ui.guide.remove(); ui.guide = null; } return; }
+    // 引导放在单独的、不吸顶的宿主里（工具栏下方、列表上方），往下滚时跟着页面走，不长期占顶部空间
+    const want = !S.settings.guideDone && health === 'ok' && ui.bar && ui.listEl && ui.listEl.isConnected;
+    if (!want) {
+      if (ui.guideHost) { ui.guideHost.el.remove(); ui.guideHost = null; }
+      ui.guide = null;
+      return;
+    }
+    ui.guideHost = host('dsp-guide', ui.listEl.parentElement, ui.listEl);
+    if (ui.guideHost.el.dataset.theme !== ui.theme) ui.guideHost.el.dataset.theme = ui.theme || 'dark';
+    const lay = ui.guideHost.root.querySelector('.dsp-layer') || ui.guideHost.root.appendChild(h('div', { class: 'dsp-layer' }));
     if (ui.guide && ui.guide.isConnected) return;
     const step = (n, a, b) => h('li', null, h('i', null, String(n)), h('b', null, a), h('span', null, b));
     ui.guide = h('div', { class: 'guide', role: 'note', 'aria-label': '三步上手' },
@@ -600,11 +754,12 @@
         step(2, '排序 → 真需求', '收藏率 ≥80% 的视频按收藏数排好'),
         step(3, '☆ 候选 → 复制入库包', '攒好后一次性给 Agent')),
       h('button', { class: 'btn sm', type: 'button', 'data-dsp': 'guide-ok', onclick: () => guideDone() }, '知道了'));
-    lay.appendChild(ui.guide);
+    clear(lay).appendChild(ui.guide);
   }
   function guideDone() {
     if (!S.settings.guideDone) store.saveSettings({ guideDone: true });
-    if (ui.guide) { ui.guide.remove(); ui.guide = null; }
+    if (ui.guideHost) { ui.guideHost.el.remove(); ui.guideHost = null; }
+    ui.guide = null;
   }
 
   // 测试用状态
@@ -627,7 +782,7 @@
 .l-paused { opacity: .85; }
 .l-paused .dsp-logo { filter: grayscale(1); opacity: .6; }
 .l-recognizing .l-tx b { color: var(--t3); }
-.guide { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--line);
+.guide { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 12px; background: var(--s1); box-shadow: inset 0 0 0 1px var(--line);
   font: 13px/20px var(--font); color: var(--t1); }
 :host([data-theme="light"]) .guide { background: var(--s2); }
 .guide-h { font-weight: 600; color: var(--red-text); white-space: nowrap; }

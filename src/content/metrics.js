@@ -165,7 +165,7 @@
     if (f.kind !== 'all' && v.kind !== f.kind) return v.kind === 'note' ? '图文' : '视频';
     if (f.minCr > 0 && v.lowSample) return '样本少';
     if (f.minCr > 0 && !(v.cr >= f.minCr)) return '收藏率 < ' + Math.round(f.minCr * 100) + '%';
-    if (f.maxAgeDays > 0 && !(v.createTime > 0 && v.ageDays <= f.maxAgeDays)) return f.maxAgeDays === 365 ? '一年前' : f.maxAgeDays + ' 天前';
+    if (f.maxAgeDays > 0 && !(v.createTime > 0 && v.ageDays <= f.maxAgeDays)) return '发布超过 ' + (f.maxAgeDays === 365 ? '1 年' : f.maxAgeDays + ' 天');
     if (f.min.digg && !(v.digg >= f.min.digg)) return '赞 < ' + n(f.min.digg);
     if (f.min.collect && !(v.collect >= f.min.collect)) return '藏 < ' + n(f.min.collect);
     if (f.min.comment && !(v.comment >= f.min.comment)) return '评 < ' + n(f.min.comment);

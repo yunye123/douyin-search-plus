@@ -65,10 +65,12 @@ test('流式多段 JSON 解析（含字符串里的花括号与转义）', () =>
 });
 
 test('extractVideos 兼容 data[].aweme_info / aweme_list / 合集', () => {
-  const vs = data.makeVideos(4, 3);
+  const vs = data.makeVideos(4, 4);
   const json = { data: [{ aweme_info: data.toApiAweme(vs[0]) }, { aweme_mix_info: { mix_items: [data.toApiAweme(vs[1])] } }, { foo: 1 }] };
   assert.deepEqual(bridge.extractVideos(json).map((r) => r.id), [vs[0].id, vs[1].id]);
   assert.deepEqual(bridge.extractVideos({ aweme_list: [data.toApiAweme(vs[2])] }).map((r) => r.id), [vs[2].id]);
+  // 视频详情接口：aweme_detail 是单个对象
+  assert.deepEqual(bridge.extractVideos({ aweme_detail: data.toApiAweme(vs[3]) }).map((r) => r.id), [vs[3].id]);
 });
 
 test('接口分类', () => {
@@ -78,6 +80,7 @@ test('接口分类', () => {
   assert.equal(bridge.classify('/aweme/v1/web/aweme/favorite/?sec_user_id=1'), 'profile');
   assert.equal(bridge.classify('/aweme/v1/web/comment/list/?aweme_id=1'), 'comments');
   assert.equal(bridge.classify('/aweme/v1/web/comment/list/reply/?x=1'), null);
+  assert.equal(bridge.classify('/aweme/v1/web/aweme/detail/?aweme_id=1'), 'detail');
   assert.equal(bridge.classify('/aweme/v1/web/hot/search/list/'), null);
 });
 

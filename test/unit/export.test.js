@@ -99,3 +99,26 @@ test('文件名去非法字符', () => {
 });
 
 test('fmtNum 被导出依赖', () => { assert.equal(U.fmtNum(2903), '2903'); });
+
+test('入库包：作者主页、账号快照、发现于名次、占比、评论区诊断与原评论', () => {
+  const w = Object.assign(M.derive({
+    id: '7400000000000000007', kind: 'video', desc: 'Top10 作品', author: '星辰ai', authorId: 'MS4w_x',
+    createTime: NOW - 10 * 86400, capturedAt: NOW, durationMs: 60000, digg: 4000, comment: 80, collect: 3600, share: 300,
+  }, NOW), {
+    source: '@星辰ai', srcType: 'profile',
+    extra: { rank: 1, lensLabel: '账号 Top10', account: { fans: 27000, likes: 179000, works: 60, at: NOW }, share: 0.225,
+      comments: { stats: { cost: 14, access: 0, hard: 12, english: 0, ask: 31 }, loaded: 160, total: 160, picks: ['这个要多少钱？', '第三步\n卡住了'] } },
+  });
+  const md = E.toMarkdown([w], { now: NOW });
+  assert.ok(md.includes('（主页 https://www.douyin.com/user/MS4w_x）'));
+  assert.ok(md.includes('- 账号快照：粉丝 2.7万 · 获赞 17.9万 · 作品 60'));
+  assert.ok(md.includes('- 发现于：@星辰ai 主页 · 账号 Top10 第 1 名'));
+  assert.ok(md.includes('- 占账号总获赞：22.5%'));
+  assert.ok(md.includes('- 评论区：太贵 14 · 太复杂 12 · 求资源 31（已读 160/160）'));
+  assert.ok(md.includes('  - 原评论：第三步 卡住了'));
+  const j = JSON.parse(E.toJson([w], { now: NOW }));
+  assert.equal(j.source, '候选篮');
+  assert.equal(j.items[0].作者主页, 'https://www.douyin.com/user/MS4w_x');
+  assert.equal(j.items[0].占账号总获赞, 0.225);
+  assert.deepEqual(j.items[0].原评论, ['这个要多少钱？', '第三步\n卡住了']);
+});

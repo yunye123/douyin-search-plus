@@ -65,7 +65,8 @@ function apiToSearchFiber(a) {
 function apiToProfileFiber(a) {
   return { awemeId: a.aweme_id, desc: a.desc, createTime: a.create_time, authorInfo: { nickname: a.author.nickname },
     statistics: { diggCount: a.statistics.digg_count, commentCount: a.statistics.comment_count, collectCount: a.statistics.collect_count, shareCount: a.statistics.share_count },
-    video: a.video ? { duration: a.video.duration, cover: a.video.cover.url_list[0] } : null };
+    video: a.video ? { duration: a.video.duration, cover: a.video.cover.url_list[0] } : null,
+    images: a.images ? a.images.map((x) => ({ url: x.url_list[0] })) : null };
 }
 function xhrJson(url) {
   return new Promise((resolve, reject) => {
@@ -249,7 +250,8 @@ S.sec = location.pathname.split('/')[2] || '';
 S.cursor = 0; S.hasMore = 1; S.loading = false;
 const ul = document.querySelector('[data-e2e="user-post-list"] ul[data-e2e="scroll-list"]');
 function cardHTML(f) {
-  return '<div><a class="sim-pcard" href="//www.douyin.com/video/' + f.awemeId + '"><div class="sim-pcover"><img src="' + (f.video ? f.video.cover : '') + '" alt="">' +
+  // 图文作品：链接是 /note/，封面取第一张图
+  return '<div><a class="sim-pcard" href="//www.douyin.com/' + (f.video ? 'video/' : 'note/') + f.awemeId + '"><div class="sim-pcover"><img src="' + (f.video ? f.video.cover : (f.images && f.images[0] ? f.images[0].url : '')) + '" alt="">' +
     '<span class="sim-like">♡ ' + fmt(f.statistics.diggCount) + '</span></div><div class="sim-ptitle">' + escH(f.desc) + '</div></a></div>';
 }
 function addItem(f) {
@@ -312,6 +314,9 @@ const VIDEO_JS = `
 ${COMMON_JS}
 const S = window.__SIM__;
 S.aid = location.pathname.split('/')[2];
+// 真实抖音的视频页会单独请求这条视频的详情；?nodetail=1 时不请求；?fiber=detail 时改为把数据挂在详情区的 fiber 上
+if (/[?&]fiber=detail/.test(location.search)) xhrJson('/sim/detail-fiber?aweme_id=' + S.aid).then((j) => attachFiber(document.querySelector('[data-e2e="detail-video-info"]'), j));
+else if (!/[?&]nodetail=1/.test(location.search)) xhrJson('/aweme/v1/web/aweme/detail/?aweme_id=' + S.aid);
 S.cursor = 0; S.hasMore = 1; S.loading = false;
 const list = document.querySelector('[data-e2e="comment-list"]');
 const side = document.querySelector('.sim-vside');

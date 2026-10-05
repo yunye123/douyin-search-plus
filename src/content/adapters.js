@@ -89,13 +89,17 @@
   }
   // 评论区的滚动容器（向上找第一个可滚动的祖先）
   // 向上找第一个真正在滚动的祖先；body / html 也算（真实抖音有时是 body 在滚，window.scrollTo 不起作用）
+  // 遇到固定定位的层（例如视频弹层）就停：返回层里第一个可滚的容器（还没溢出也算），没有就返回这一层本身。
+  // 绝不越过弹层去滚背后的页面（那会替用户悄悄翻页）
   function scrollerOf(el) {
     let sc = el && el.parentElement;
+    let cand = null;
     while (sc) {
-      if (sc.scrollHeight > sc.clientHeight + 40) {
-        if (/(auto|scroll|overlay)/.test(getComputedStyle(sc).overflowY)) return sc;
-        if (sc === document.scrollingElement) return sc;
-      }
+      const cs = getComputedStyle(sc);
+      const canScroll = /(auto|scroll|overlay)/.test(cs.overflowY);
+      if (canScroll && !cand) cand = sc;
+      if (sc.scrollHeight > sc.clientHeight + 40 && (canScroll || sc === document.scrollingElement)) return sc;
+      if (cs.position === 'fixed') return cand || sc;
       sc = sc.parentElement;
     }
     return document.scrollingElement || document.documentElement;
@@ -200,16 +204,18 @@
   }
 
   // 抖音当前是深色还是浅色：取 body（或第一个有背景色的祖先）的亮度
+  // 元素实际看到的底色：自己或最近的祖先里第一个不透明的背景色
+  function pick(el) {
+    while (el) {
+      const c = getComputedStyle(el).backgroundColor;
+      const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(c || '');
+      if (m && (m[4] === undefined || +m[4] > 0.5)) return [+m[1], +m[2], +m[3]];
+      el = el.parentElement;
+    }
+    return null;
+  }
+  function bgOf(el) { const rgb = pick(el); return rgb ? 'rgb(' + rgb.join(',') + ')' : ''; }
   function pageTheme() {
-    const pick = (el) => {
-      while (el) {
-        const c = getComputedStyle(el).backgroundColor;
-        const m = /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(c || '');
-        if (m && (m[4] === undefined || +m[4] > 0.5)) return [+m[1], +m[2], +m[3]];
-        el = el.parentElement;
-      }
-      return null;
-    };
     const rgb = pick(document.querySelector('#search-result-container') || document.body) || pick(document.documentElement);
     if (!rgb) return 'dark';
     const lum = (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
@@ -263,6 +269,6 @@
   DSP.adapters = {
     ID_RE, LINK_SEL, LIST_STRATEGIES,
     locateList, cardsOf, commentList, commentRows, scrollerOf, isDocScroller, domCommentDigg, normText,
-    blockingReason, headerBottom, pageTheme, profileStats, diagnose,
+    blockingReason, headerBottom, pageTheme, bgOf, profileStats, diagnose,
   };
 })();

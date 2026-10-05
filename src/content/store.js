@@ -114,6 +114,7 @@
     const r = S.route;
     ctx = ctx || {};
     if (!Array.isArray(items) || !items.length) return 0;
+    if (ctx.endpoint === 'detail') return intakeDetail(items);
     if (r.type === 'search') {
       if (ctx.endpoint && ctx.endpoint !== 'search' && ctx.source === 'api') return 0;
       if (ctx.kw != null && squash(ctx.kw) !== r.kw) return 0;
@@ -143,8 +144,25 @@
       if (!old || changedRec(old, rec)) { S.videos.set(it.id, rec); changed++; }
       if (r.type === 'profile' && !S.sessionLabel && rec.author) S.sessionLabel = '@' + rec.author;
     }
-    if (changed) { S.version++; ev.emit('data'); }
+    if (changed) { S.version++; ev.emit('data'); rememberSeen(items.map((it) => S.videos.get(it.id))); }
     return changed;
+  }
+  // 单条视频详情（视频页、弹层里读到的）：不进当前搜索/主页会话，只供视频页显示收藏率、加入候选
+  const details = new Map();
+  function intakeDetail(items) {
+    const t = now();
+    const recs = [];
+    for (const it of items) {
+      if (!it || !it.id) continue;
+      const rec = Object.assign({}, findVideo(it.id) || {}, stripEmpty(it), { capturedAt: t });
+      for (const k of COUNTS) if (rec[k] === undefined) rec[k] = null;
+      details.delete(it.id);
+      details.set(it.id, rec);
+      recs.push(rec);
+    }
+    while (details.size > 50) details.delete(details.keys().next().value);
+    if (recs.length) { S.version++; ev.emit('data'); rememberSeen(recs); }
+    return recs.length;
   }
   // 合并前去掉空值：新数据里缺的字段沿用旧值。计数为 0 是真实的 0，要保留；缺失（null）不覆盖
   const COUNTS = ['digg', 'comment', 'collect', 'share'];
@@ -237,17 +255,69 @@
     const arr = [...S.candidates.values()].slice(-MAX_CANDS);
     try { chrome.storage.local.set({ [KEY_CANDS]: arr }); } catch (e) { /* 忽略 */ }
   }
-  function addCandidate(id) {
-    const d = derived();
-    const v = d.byId.get(id) || (S.candidates.get(id) && S.candidates.get(id).rec);
+  // 按 id 找视频：当前会话 → 最近几个会话 → 候选篮（从搜索页点进视频页时，用刚才读到的数据）
+  function findVideo(id) {
+    if (!id) return null;
+    if (details.has(id)) return details.get(id); // 详情是单独读的，最新
+    if (S.videos.has(id)) return S.videos.get(id);
+    for (const c of recent.values()) if (c.videos.has(id)) return c.videos.get(id);
+    const cand = S.candidates.get(id);
+    if (cand) return cand.rec;
+    return seen.get(id) || null;
+  }
+
+  // 最近读到过的视频（精简记录，最多 300 条，存本机）：在新标签页打开视频时，视频页也能显示收藏率
+  const KEY_SEEN = 'dsp.seen';
+  const MAX_SEEN = 300;
+  let seen = new Map();
+  let seenTimer = 0;
+  const SEEN_FIELDS = ['id', 'kind', 'desc', 'author', 'authorId', 'createTime', 'durationMs', 'cover', 'digg', 'comment', 'collect', 'share', 'capturedAt'];
+  function rememberSeen(recs) {
+    for (const v of recs) {
+      if (!v || !v.id) continue;
+      const r = {};
+      for (const k of SEEN_FIELDS) r[k] = v[k];
+      seen.delete(v.id);
+      seen.set(v.id, r);
+    }
+    while (seen.size > MAX_SEEN) seen.delete(seen.keys().next().value);
+    if (!hasChrome() || seenTimer) return;
+    // 写入节流：5 秒最多一次
+    seenTimer = setTimeout(() => {
+      seenTimer = 0;
+      try { chrome.storage.local.set({ [KEY_SEEN]: [...seen.values()] }); } catch (e) { /* 扩展被重载时会失效，忽略 */ }
+    }, 5000);
+  }
+
+  // extra：加入时的上下文（都可省略）
+  //   rank / lensLabel：当时的名次与排序看法；account：账号快照 { fans, likes, works }；share：占账号总获赞；
+  //   comments：评论区诊断 { stats, loaded, total, picks: [原评论...] }
+  function addCandidate(id, extra) {
+    const v = derived().byId.get(id) || findVideo(id);
     if (!v) return false;
-    if (S.candidates.has(id)) return true;
+    const old = S.candidates.get(id);
+    if (old && !extra) return true;
     const rec = {};
     for (const k of ['id', 'kind', 'desc', 'author', 'authorId', 'createTime', 'durationMs', 'cover', 'digg', 'comment', 'collect', 'share', 'capturedAt']) rec[k] = v[k];
-    S.candidates.set(id, { rec, addedAt: now(), source: S.sessionLabel });
+    const entry = old || { rec, addedAt: now(), source: S.sessionLabel, srcType: S.route.type };
+    if (extra) entry.extra = Object.assign({}, entry.extra || {}, extra);
+    S.candidates.set(id, entry);
     persistCandidates();
     ev.emit('candidates');
     return true;
+  }
+  // 复制过入库包的候选记上时间，下次默认只复制新加入的
+  function markCopied(ids) {
+    const t = now();
+    for (const id of ids) { const c = S.candidates.get(id); if (c) c.copiedAt = t; }
+    persistCandidates();
+    ev.emit('candidates');
+  }
+  function removeCandidates(ids) {
+    let n = 0;
+    for (const id of ids) if (S.candidates.delete(id)) n++;
+    if (n) { persistCandidates(); ev.emit('candidates'); }
+    return n;
   }
   function removeCandidate(id) {
     if (!S.candidates.delete(id)) return;
@@ -268,15 +338,18 @@
   // 候选篮里的记录：派生指标按"采集时"计算（D+N 与比率对应同一时刻）
   function candidateList() {
     const t = now();
-    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, t), { addedAt: c.addedAt, source: c.source }));
+    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, t), { addedAt: c.addedAt, source: c.source, srcType: c.srcType, extra: c.extra || null, copiedAt: c.copiedAt || 0 }));
   }
 
   function load() {
     return new Promise((resolve) => {
       if (!hasChrome()) return resolve();
       try {
-        chrome.storage.local.get([KEY_SETTINGS, KEY_CANDS], (res) => {
+        chrome.storage.local.get([KEY_SETTINGS, KEY_CANDS, KEY_SEEN], (res) => {
           if (res && res[KEY_SETTINGS]) Object.assign(S.settings, res[KEY_SETTINGS]);
+          if (res && Array.isArray(res[KEY_SEEN])) {
+            for (const r of res[KEY_SEEN]) if (r && r.id && !seen.has(r.id)) seen.set(r.id, r);
+          }
           if (res && Array.isArray(res[KEY_CANDS])) {
             S.candidates = new Map(res[KEY_CANDS].filter((c) => c && c.rec && c.rec.id).map((c) => [c.rec.id, c]));
           }
@@ -304,7 +377,7 @@
     S, on: ev.on, emit: ev.emit,
     routeOf, normKw, normFilter, setRoute, intakeVideos, intakeComments,
     derived, viewOf, setSort, setFilter, resetView,
-    saveSettings, addCandidate, removeCandidate, clearCandidates, restoreCandidates, candidateList, load,
+    saveSettings, addCandidate, removeCandidate, removeCandidates, markCopied, clearCandidates, restoreCandidates, candidateList, findVideo, load,
     DEFAULT_SETTINGS,
   };
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') module.exports = DSP.store;

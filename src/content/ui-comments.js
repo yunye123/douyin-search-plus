@@ -9,6 +9,9 @@
   function build(api) {
     const els = {};
     const box = h('div', { class: 'cbar', role: 'region', 'aria-label': '评论区工具' });
+    // 这条视频本身：收藏率 + 加入候选（连同评论区诊断和挑出的原评论一起存进候选）
+    els.video = h('div', { class: 'cb-video' });
+    box.appendChild(els.video);
     const top = h('div', { class: 'cb-top' });
     els.seg = h('div', { class: 'seg-ctl', role: 'group', 'aria-label': '评论排序' });
     for (const [k, label, tip] of [['', '默认', '抖音原本的顺序'], ['digg', '按赞', '点赞多的在前：大家最认同的说法'], ['replies', '按回复', '回复多的在前：卡点和争议通常在这里（选题 SOP 推荐）']]) {
@@ -38,8 +41,30 @@
     return { box, els };
   }
 
+  function renderVideo(t, vm, api) {
+    const { els } = t;
+    const v = vm.video;
+    const sig = v ? [v.id, v.cr, vm.isCand, vm.candHasComments].join('|') : 'none';
+    if (t.videoSig === sig) return;
+    t.videoSig = sig;
+    clear(els.video);
+    if (!v) {
+      els.video.appendChild(h('span', { class: 'cb-vhint' }, '从搜索结果或博主主页点进这条视频，这里会显示它的收藏率，并能连同评论结论一起加入候选'));
+      return;
+    }
+    const tier = DSP.metrics.crTier(v);
+    els.video.append(
+      h('span', { class: 'cb-vcr c-' + tier }, tier === 'na' ? '—' : DSP.util.fmtPct(v.cr)),
+      h('span', { class: 'tier tier-' + tier }, DSP.metrics.tierLabel(v)),
+      h('span', { class: 'cb-vmeta' }, '赞 ' + DSP.util.fmtNum(v.digg) + ' · 藏 ' + DSP.util.fmtNum(v.collect) + (v.dn ? ' · ' + DSP.metrics.fmtDn(v.dn) : '')),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn sm cb-cand' + (vm.isCand ? ' on' : ''), type: 'button', 'data-dsp': 'c-cand', onclick: () => api.addVideo() },
+        icon('star', 14), vm.isCand ? (vm.candHasComments ? '更新评论结论' : '补上评论结论') : '加入候选'));
+  }
+
   function render(t, vm, api) {
     const { els } = t;
+    renderVideo(t, vm, api);
     for (const b of els.seg.children) {
       const on = (b.dataset.cmode === 'none' && !vm.mode) || b.dataset.cmode === vm.mode;
       b.classList.toggle('on', on);
@@ -70,13 +95,13 @@
     els.hl.hidden = !vm.highlight;
     if (vm.highlight) {
       const label = (E.BARRIERS.find((b) => b.key === vm.highlight) || {}).label;
-      els.hl.append(
+      DSP.kit.append(els.hl, [
         vm.hits ? h('span', null, '已高亮 ', h('b', null, String(vm.hits)), ' 条「' + label + '」') : h('span', null, '已读的评论里没人提到「' + label + '」'),
         vm.hits ? h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': '上一条', onclick: () => api.jump(-1) }, icon('arrowUp', 14)) : null,
         vm.hits ? h('button', { class: 'icon-btn xs', type: 'button', 'aria-label': '下一条', onclick: () => api.jump(1) }, icon('arrowDown', 14)) : null,
         vm.hits ? h('span', { class: 'cb-pos' }, (vm.cursor + 1) + '/' + vm.hits) : null,
         h('span', { class: 'grow' }),
-        vm.hits ? h('button', { class: 'link', type: 'button', onclick: (e) => api.copyHits(e.currentTarget) }, icon('copy', 14), '复制这 ' + vm.hits + ' 条') : null);
+        vm.hits ? h('button', { class: 'link', type: 'button', onclick: (e) => api.copyHits(e.currentTarget) }, icon('copy', 14), '复制这 ' + vm.hits + ' 条') : null]);
       if (focusedCls) { const f = [...els.hl.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') || b.textContent) === focusedCls); if (f) f.focus({ preventScroll: true }); }
     }
   }
@@ -86,6 +111,13 @@
   font: 13px/20px var(--font); color: var(--t1); font-variant-numeric: tabular-nums; }
 :host([data-theme="light"]) .cbar { background: var(--s2); }
 .cb-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cb-video { display: flex; align-items: center; gap: 8px; margin: -2px 0 10px; padding: 0 2px 10px; border-bottom: 1px solid var(--line); }
+.cb-vcr { font: 700 18px/24px var(--font); }
+.cb-vmeta { color: var(--t3); font-size: 12px; white-space: nowrap; }
+.cb-vhint { color: var(--t3); font-size: 12px; line-height: 18px; }
+.cb-cand svg { color: var(--gold); }
+.cb-cand.on { color: var(--t1); background: rgba(255,197,61,.14); box-shadow: inset 0 0 0 1px rgba(255,197,61,.4); }
+.cb-cand.on svg { fill: var(--gold); }
 .cb-count { color: var(--t3); font-size: 12px; white-space: nowrap; }
 .btn.sm { height: 28px; padding: 0 8px; font-size: 12px; gap: 4px; }
 .btn.sm.on { background: var(--red-soft); color: var(--red-text); box-shadow: inset 0 0 0 1px var(--red-line); }

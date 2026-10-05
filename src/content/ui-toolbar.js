@@ -161,8 +161,9 @@
     panel.appendChild(lensBox);
 
     // 自定义排序：单项指标 / 组合 / 方向，默认折叠（最常用的是上面几种看法）
-    const open = vm.customOpen || (!vm.lens && vm.sortKeys.length > 0);
-    const toggle = h('button', { class: 'custom-toggle', type: 'button', 'aria-expanded': open ? 'true' : 'false', 'data-dsp': 'custom', onclick: () => api.toggleCustom() },
+    // 用户点过折叠按钮就以用户为准；否则按当前排序是不是"自定义"决定默认展开与否
+    const open = vm.customOpen != null ? vm.customOpen : (!vm.lens && vm.sortKeys.length > 0);
+    const toggle = h('button', { class: 'custom-toggle', type: 'button', 'aria-expanded': open ? 'true' : 'false', 'data-dsp': 'custom', onclick: () => api.toggleCustom(!open) },
       icon('chevron', 14, 'tg-ic'), h('b', null, '自定义排序'), h('span', { class: 'pop-hint' }, '任选指标、组合、方向'));
     panel.appendChild(h('div', { class: 'custom-row' }, toggle,
       h('button', { class: 'link', type: 'button', 'data-dsp': 'pop-reset', onclick: () => { api.resetView(); closePop(true); } }, icon('refresh', 14), '原顺序')));
@@ -217,6 +218,11 @@
         'data-autofocus': q.key === 'cr80' ? '' : null,
         onclick: () => { api.patchFilter(q.patch(f)); api.refreshPop(); } }, on ? icon('check', 14) : null, q.label));
     }
+    // 点分布条选中的分档：显示成可以单独取消的条
+    if (f.tier) {
+      quick.appendChild(h('button', { class: 'qchip on', type: 'button', 'data-quick': 'tier', 'aria-label': '取消只看「' + M.CR_TIERS[f.tier].label + '」档',
+        onclick: () => { api.patchFilter({ tier: '' }); api.refreshPop(); } }, '只看「' + M.CR_TIERS[f.tier].label + '」档', icon('close', 12)));
+    }
     panel.appendChild(quick);
     panel.appendChild(h('div', { class: 'pop-h' }, '至少', h('span', { class: 'pop-hint' }, '可以写 1万、1.5w、2000')));
     for (const [k, label] of [['digg', '点赞'], ['collect', '收藏'], ['comment', '评论']]) {
@@ -249,14 +255,15 @@
     const i = panel.querySelector('.pf-meter i');
     if (i) i.style.width = (vm.count ? (vm.passCount / vm.count) * 100 : 0) + '%';
     const q = panel.querySelector('.pf-big span');
-    if (q) q.textContent = ' / ' + vm.count + ' 条达标';
+    if (q) q.textContent = ' / ' + vm.count + ' 条过线';
   }
 
   // ---------------- 更多菜单 ----------------
   function morePanel(vm, api) {
     const item = (ic, label, run, extra) => h('button', { class: 'mi', type: 'button', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label), extra || null);
     const panel = h('div', { class: 'pop-more' });
-    panel.append(
+    DSP.kit.append(panel, [
+      vm.sorted && vm.passCount ? item('star', '把前 ' + Math.min(vm.passCount, 10) + ' 条加入候选', () => api.addTop(Math.min(vm.passCount, 10))) : null,
       item('copy', '复制当前结果（表格）', () => api.exportView('tsv'), h('span', { class: 'mi-k' }, vm.passCount + ' 条')),
       item('download', '下载当前结果 CSV', () => api.exportView('csv')),
       h('div', { class: 'mi-sep' }),
@@ -266,7 +273,7 @@
       h('div', { class: 'mi-sep' }),
       item('power', '暂停插件（页面还原）', () => api.pause()),
       item('external', '使用说明与反馈', () => window.open('https://github.com/yunye123/douyin-search-plus#readme', '_blank', 'noopener')),
-    );
+    ]);
     panel.appendChild(h('div', { class: 'mi-foot' }, '抖音搜索增强 v' + api.version() + ' · 非官方 · 数据只在本机'));
     return panel;
   }

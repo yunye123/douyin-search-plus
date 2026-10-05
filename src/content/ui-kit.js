@@ -200,11 +200,22 @@
     panel.style.visibility = 'hidden';
     panel.style.left = '0px';
     panel.style.top = '0px';
+    panel.style.maxHeight = '';
     const pw = panel.offsetWidth, ph = panel.offsetHeight;
     let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
     if (placement === 'below-end') left = Math.min(Math.max(8, r.right - pw), window.innerWidth - pw - 8);
-    let top = r.bottom + 8;
-    if (placement === 'above' || top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 8);
+    // 优先放在按钮下方；下方空间不够时面板内部滚动。只有下方实在太小（<320px）而上方更宽裕时才翻到上方，且不盖住按钮
+    const below = window.innerHeight - r.bottom - 16;
+    const above = r.top - 16;
+    let top;
+    if (ph <= below || below >= 320 || below >= above) {
+      top = r.bottom + 8;
+      if (ph > below) panel.style.maxHeight = Math.max(160, below) + 'px';
+    } else {
+      const hgt = Math.min(ph, above);
+      top = r.top - 8 - hgt;
+      if (ph > above) panel.style.maxHeight = above + 'px';
+    }
     panel.style.left = Math.round(left) + 'px';
     panel.style.top = Math.round(top) + 'px';
     panel.style.visibility = '';
@@ -307,7 +318,11 @@
     if (opts.action) {
       el.appendChild(h('button', { class: 'dsp-toast-act', type: 'button', onclick: () => { el.classList.remove('dsp-in'); opts.action.run(); } }, opts.action.label));
     }
-    toastSt.arm = (ms) => { clearTimeout(toastSt.t); toastSt.t = setTimeout(() => el.classList.remove('dsp-in'), ms); };
+    // 淡出后把内容清掉：看不见的"撤销"按钮不能留在 Tab 顺序里被误触
+    toastSt.arm = (ms) => {
+      clearTimeout(toastSt.t);
+      toastSt.t = setTimeout(() => { el.classList.remove('dsp-in'); toastSt.t = setTimeout(() => { if (!el.classList.contains('dsp-in')) clear(el); }, 220); }, ms);
+    };
     requestAnimationFrame(() => el.classList.add('dsp-in'));
     toastSt.arm(opts.duration || (opts.action ? 5000 : 3000));
   }

@@ -83,6 +83,7 @@
       settings: S.settings,
       meta: { search: meta.search, profile: meta.profile, bridgeSeen: meta.bridgeSeen },
       ui: DSP.ui && DSP.ui.debugState ? DSP.ui.debugState() : null,
+      popup: status(), // 扩展弹窗看到的状态
       err: root.dataset.dspErr || '',
     };
   }
@@ -97,11 +98,14 @@
     const v = store.viewOf();
     const M = DSP.metrics;
     const keys = S.view.sortKeys;
+    // 页面每次重画都会按当前会话记一份计数；会话对不上（刚换关键词、还没画）就退回会话总数
+    const c = DSP.ui && DSP.ui.counts && DSP.ui.counts.session === S.session ? DSP.ui.counts : null;
     return {
       type: S.route.type,
       label: S.sessionLabel,
-      count: S.videos.size,
-      strongNeed: S.videos.size ? v.summary.strongNeed : null,
+      // 列表页：和工具栏同一个口径（页面上实际的卡片）；回到搜过的关键词时不把缓存里的旧数据算进来
+      count: c ? c.count : S.videos.size,
+      strongNeed: c ? (c.count ? c.strongNeed : null) : S.videos.size ? v.summary.strongNeed : null,
       // 和页面工具栏同一个说法：有看法时用看法名（「真需求」），否则列出指标
       sortLabel: (() => { const l = DSP.presenter.matchLens(S.view); return l ? '「' + l.label + '」' : keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : ''; })(),
       comments: S.comments.map.size,
