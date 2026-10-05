@@ -74,7 +74,9 @@
     for (const x of [ui.root && ui.root.el, ui.dock && ui.dock.el, ui.cbar && ui.cbar.el]) if (x && x.dataset.theme !== theme) x.dataset.theme = theme;
     // 其余情况只在需要随时间变化时重画：识别中（6 秒后会变成"读不到"）、注水兜底计时、加载中；另外每 5 秒保底一次
     ui.tick = (ui.tick || 0) + 1;
-    if (changed || ui.lastHealth === 'recognizing' || !ui.dock || listLoader.running || CE.state.mode || CE.state.highlight || ui.tick % 5 === 0) schedule();
+    // 列表页还没挂上工具栏（识别中）才需要每秒重画；视频页、精选页没有工具栏，不必每秒重画（注水前除外）
+    const onList = S.route.type === 'search' || S.route.type === 'profile';
+    if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || ui.tick % 5 === 0) schedule();
   }
 
   // ---------------- 总开关 ----------------
@@ -235,7 +237,7 @@
     const type = S.route.type;
     let listState = null;
     if (type === 'search' || type === 'profile') listState = updateList(type);
-    else { removeDock(); }
+    else { removeDock(); ui.lastHealth = ''; } // 离开列表页：读取状态清掉，不沿用上一个列表页的
     updateComments();
     renderLauncher(listState && !listState.docked ? listState.health : null);
     renderGuide(listState && listState.health);

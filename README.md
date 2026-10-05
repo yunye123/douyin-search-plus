@@ -132,7 +132,7 @@ npm run pack       # 打包 dist/douyin-search-plus-<版本>.zip（检查版本�
 npm run icons      # 重新生成并校验图标
 ```
 
-仿真站（`test/sim`）按 2026-10 实测的抖音结构复刻了搜索页、博主主页、视频评论区，还能模拟 React 反复重渲染（`?chaos=1`）、没有 fiber（`?nofiber=1`）、登录墙（`?loginwall=20`）和页面改版（`?broken=1`）。真实环境的确认项见 [真机验证清单](docs/real-device-checklist.md)。
+仿真站（`test/sim`）按 2026-10 实测的抖音结构复刻了搜索页（含官方筛选）、博主主页、视频评论区，还能模拟 React 反复重渲染（`?chaos=1`）、没有 fiber（`?nofiber=1`）、登录墙（`?loginwall=20`）、页面改版（`?broken=1`）、由 body 滚动（`?bodyscroll=1`，真实抖音就是这样）、搜索页上的视频弹层（`?modal=1`），以及视频页拿不到详情接口（`?nodetail=1`）或数据只在详情区 fiber 上（`?fiber=detail`）。真实环境的确认项见 [真机验证清单](docs/real-device-checklist.md)。
 
 抖音改版导致失效时：在页面工具栏的「⋯」里点"复制诊断信息"，贴到 issue 里即可（只含结构信息，不含任何内容和账号信息）。
 

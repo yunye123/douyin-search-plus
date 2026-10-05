@@ -19,8 +19,16 @@
   }
   const pct1 = (r) => (r == null ? '' : r > 0 ? (Math.round(r * 1000) / 10) + '%' : '0%');
   const ratio4 = (r) => (r == null ? null : Math.round(r * 10000) / 10000);
-  // 有热度建议值（SOP：对标给 3~4）：收藏率达到真需求线的给 4，其余给 3；只是建议，入库时可改
-  const heatHint = (v) => (!v.lowSample && v.cr >= 0.8 ? 4 : 3);
+  // 有热度：只给依据、不给分数。SOP 的热度看赞数和话题热度（对标爆款给 4、一般给 3），
+  // 收藏率只说明观众想不想照做，不能当热度依据；话题热度（同题爆款、GitHub 星数等）插件看不到，分数交给 Agent 按 SOP 判断
+  function heatEvidence(v) {
+    const x = v.extra || {};
+    const parts = [];
+    if (v.digg != null) parts.push('赞 ' + v.digg);
+    if (v.dpd > 0) parts.push('日均赞 ' + Math.round(v.dpd));
+    if (x.share != null) parts.push('占账号总获赞 ' + pct1(x.share));
+    return parts.join(' · ');
+  }
 
   // ---------- 表格列（TSV / CSV 共用） ----------
   const COLUMNS = [
@@ -100,6 +108,7 @@
     const src = meta.source ? '来源：' + meta.source + ' · ' : '';
     lines.push('> ' + src + '导出于 ' + fmtTime(meta.now || (list[0] && list[0].capturedAt)) + ' · 数据由 DouyinSearchPlus 导出，每条的采集时间见条目');
     lines.push('> 口径：收藏率 = 收藏 ÷ 点赞；D+N = 采集时距发布的天数（比率要连窗口一起比）');
+    lines.push('> 有热度：按赞数和话题热度判断（SOP：对标爆款给 4、一般给 3）；收藏率只说明想不想照做，不当热度依据，低收藏率不扣热度');
     list.forEach((v, i) => {
       lines.push('');
       lines.push('## ' + (i + 1) + '. ' + ((v.desc || '').replace(/\s+/g, ' ').slice(0, 40) || '（无标题）'));
@@ -123,7 +132,8 @@
         // 原评论一字不改（SOP「原文|原评论」字段）
         for (const t of (x.comments.picks || []).slice(0, 5)) lines.push('  - 原评论：' + String(t).replace(/\s*\n\s*/g, ' '));
       }
-      lines.push('- 建议：来源=对标 · 有热度=' + heatHint(v) + '（建议值）');
+      const heat = heatEvidence(v);
+      lines.push('- 建议：来源=对标' + (heat ? ' · 有热度看：' + heat : ''));
     });
     return lines.join('\n');
   }
@@ -159,7 +169,7 @@
         评论区门槛词: x.comments ? commentsLine(x.comments) : '',
         原评论: x.comments ? (x.comments.picks || []).slice(0, 5) : [],
         来源: '对标',
-        有热度建议: heatHint(v),
+        有热度依据: heatEvidence(v),
         视频ID: v.id,
         };
       }),

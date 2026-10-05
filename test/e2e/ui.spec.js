@@ -741,3 +741,40 @@ test('键盘打开详情卡后抖音自动加载了更多结果（列表重排�
   await page.waitForTimeout(600);
   await expect(page.locator('.dsp-detail')).toBeVisible();
 });
+
+test('从搜索页去精选、打开一个视频：弹窗和入库包都不沿用上一次搜索的名字', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.search('来源测试'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  const X = '7499999999999999123'; // 不在这次搜索结果里的视频
+  await page.evaluate((X) => {
+    history.pushState({}, '', '/jingxuan?modal_id=' + X);
+    const m = document.createElement('div');
+    m.id = 'sim-modal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:80;background:#111;display:flex;padding:40px';
+    m.innerHTML = '<div style="flex:1"></div><div class="side" style="width:420px;height:calc(100vh - 80px);overflow:auto"><div data-e2e="comment-list"></div></div>';
+    document.body.appendChild(m);
+    const list = m.querySelector('[data-e2e="comment-list"]');
+    xhrJson('/aweme/v1/web/aweme/detail/?aweme_id=' + X);
+    xhrJson('/aweme/v1/web/comment/list/?aweme_id=' + X + '&cursor=0&count=20').then((j) => {
+      for (const c of j.comments) { const w = document.createElement('div'); w.innerHTML = '<div data-e2e="comment-item"><div>' + escH(c.text) + '</div></div>'; list.appendChild(w); }
+    });
+  }, X);
+  const s = await until(page, (x) => x.route.modalId === X && x.comments.count >= 20);
+  expect(s.popup.type).toBe('video');
+  expect(s.popup.label).toBe('');
+  expect(s.popup.health).not.toBe('fail');
+  await expect(page.locator('.cb-vcr')).toBeVisible();
+  await dsp(page, 'c-cand').click();
+  await until(page, (x) => x.candidates.includes(X));
+  // 关掉弹层回到搜索页，复制入库包：这条不写"发现于：搜索「来源测试」"
+  await page.evaluate(() => { document.getElementById('sim-modal').remove(); history.back(); });
+  await until(page, (x) => x.route.type === 'search' && x.ui.docked);
+  await dsp(page, 'basket').click();
+  await dsp(page, 'copy-md').click();
+  const md = await page.evaluate(() => navigator.clipboard.readText());
+  expect(md).toContain('/video/' + X);
+  expect(md).not.toContain('发现于');
+});

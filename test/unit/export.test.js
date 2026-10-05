@@ -39,7 +39,18 @@ test('入库包 Markdown：原标题照抄、链接规范、带口径与窗口',
   assert.ok(md.includes('- 原标题：=HYPERLINK("x") 保姆级教程\n第二行'.split('\n')[0]));
   assert.ok(md.includes('收藏率 111.7%（真需求）'));
   assert.ok(md.includes('（D+6.2）'));
-  assert.ok(md.includes('有热度=4'));
+  // 有热度只给依据（赞数、日均赞），不按收藏率给分
+  assert.ok(md.includes('- 建议：来源=对标 · 有热度看：赞 2600 · 日均赞 419'));
+  assert.ok(md.includes('> 有热度：按赞数和话题热度判断'));
+  assert.ok(!/有热度=\d/.test(md));
+});
+
+test('有热度：高赞、收藏率不高的对标不会被压成 3 分（SOP：收藏率不当热度依据）', () => {
+  const hot = M.derive({ id: '7400000000000000009', kind: 'video', desc: '爆款', author: 'x', createTime: NOW - 30 * 86400, capturedAt: NOW, durationMs: 60000, digg: 55037, comment: 900, collect: 15400, share: 2000 }, NOW);
+  const md = E.toMarkdown([hot], { now: NOW });
+  assert.ok(!md.includes('有热度=3'));
+  assert.ok(md.includes('有热度看：赞 55037 · 日均赞 1835'));
+  assert.equal(JSON.parse(E.toJson([hot], { now: NOW })).items[0].有热度依据, '赞 55037 · 日均赞 1835');
 });
 
 test('入库包 JSON：选题库列名', () => {

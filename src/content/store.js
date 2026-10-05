@@ -329,7 +329,10 @@
     if (old && !extra) return true;
     const rec = {};
     for (const k of ['id', 'kind', 'desc', 'author', 'authorId', 'createTime', 'durationMs', 'cover', 'digg', 'comment', 'collect', 'share', 'capturedAt']) rec[k] = v[k];
-    const entry = old || { rec, addedAt: now(), source: S.sessionLabel, srcType: S.route.type, srcSession: S.session };
+    // 来源：这条视频在当前列表会话里（搜索结果 / 博主主页，或从它们点进去的视频）才记这个会话；
+    // 在精选、推荐等别处打开的视频不记来源，免得把上一次搜索的关键词写成它的出处
+    const fromList = !!S.session && S.videos.has(id);
+    const entry = old || { rec, addedAt: now(), source: fromList ? S.sessionLabel : '', srcType: fromList ? S.session.split('|')[0] : S.route.type, srcSession: fromList ? S.session : '' };
     // 移出过、之前已经交给过 Agent 的：带回复制时间，并作为"更新"再给一次（不当成新选题）
     if (!old && handed.has(id)) {
       entry.copiedAt = handed.get(id);

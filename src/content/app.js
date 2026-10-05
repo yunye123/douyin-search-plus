@@ -101,10 +101,12 @@
     const keys = S.view.sortKeys;
     // 页面每次重画都会按当前会话记一份计数；会话对不上（刚换关键词、还没画）就退回会话总数
     const c = DSP.ui && DSP.ui.counts && DSP.ui.counts.session === S.session ? DSP.ui.counts : null;
+    // 会话名和读取状态只属于搜索页、主页；在精选里打开的视频不沿用上一次搜索的
+    const onList = S.route.type === 'search' || S.route.type === 'profile';
     return {
       // 精选、推荐流里点开的视频弹层也有评论区：按视频页说
       type: S.route.modalId && S.route.type !== 'search' && S.route.type !== 'profile' ? 'video' : S.route.type,
-      label: S.sessionLabel,
+      label: onList ? S.sessionLabel : '',
       // 列表页：和工具栏同一个口径（页面上实际的卡片）；回到搜过的关键词时不把缓存里的旧数据算进来
       count: c ? c.count : S.videos.size,
       strongNeed: c ? (c.count ? c.strongNeed : null) : S.videos.size ? v.summary.strongNeed : null,
@@ -112,7 +114,7 @@
       sortLabel: (() => { const l = DSP.presenter.matchLens(S.view); return l ? '「' + l.label + '」' : keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : ''; })(),
       comments: S.comments.map.size,
       candidates: S.candidates.size,
-      health: DSP.ui && DSP.ui.health ? DSP.ui.health() : 'ok',
+      health: onList && DSP.ui && DSP.ui.health ? DSP.ui.health() : 'ok',
     };
   }
   try {
