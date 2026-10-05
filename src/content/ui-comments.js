@@ -72,8 +72,8 @@
     }
     const countText = vm.total ? '已读 ' + vm.loaded + ' / 共 ' + vm.total + ' 条' : '已读 ' + vm.loaded + ' 条';
     if (els.count.textContent !== countText) els.count.textContent = countText;
-    els.loadText.textContent = vm.loading ? '停止' : vm.done ? '已读完' : '加载全部';
-    els.load.disabled = !vm.loading && vm.done;
+    els.loadText.textContent = vm.loading ? '停止' : vm.done ? '已读完' : vm.atCap ? '已到上限' : '加载全部';
+    els.load.disabled = !vm.loading && (vm.done || vm.atCap);
     els.load.classList.toggle('on', vm.loading);
     els.progressFill.style.width = vm.loading && vm.total ? Math.min(100, (vm.loaded / vm.total) * 100) + '%' : '0%';
     const stats = vm.stats || {};
@@ -126,8 +126,8 @@
 .cb-note { font-weight: 400; color: var(--t3); }
 .cb-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .cb-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 52px; border-radius: 10px; background: var(--s2); color: var(--t2); font-size: 12px; line-height: 16px; transition: background 120ms; }
-:host([data-theme="light"]) .cb-tile { background: var(--s1); box-shadow: inset 0 0 0 1px var(--line); }
-.cb-tile:hover { background: var(--s3); }
+:host([data-theme="light"]) .cb-tile:not(.on) { background: var(--s1); box-shadow: inset 0 0 0 1px var(--line); }
+.cb-tile:not(.on):hover, :host([data-theme="light"]) .cb-tile:not(.on):hover { background: var(--s3); }
 .cb-n { font: 700 18px/22px var(--font); color: var(--t1); }
 .cb-tile[data-barrier="cost"]:not(.zero) .cb-n, .cb-tile[data-barrier="access"]:not(.zero) .cb-n, .cb-tile[data-barrier="hard"]:not(.zero) .cb-n, .cb-tile[data-barrier="english"]:not(.zero) .cb-n { color: var(--tier-low-text); }
 .cb-tile[data-barrier="ask"]:not(.zero) .cb-n { color: var(--cyan-text); }

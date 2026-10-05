@@ -49,7 +49,8 @@
     ui.layer = r.root.querySelector('.dsp-layer') || r.root.appendChild(h('div', { class: 'dsp-layer' }));
     r.el.dataset.theme = A.pageTheme();
     for (const ev of ['data', 'view', 'candidates', 'settings', 'comments', 'session']) store.on(ev, schedule);
-    store.on('route', () => { ui.routeAt = Date.now(); stopLoaders('route'); closePop(); C.hideDetail(true); CE.state.mode = null; CE.state.highlight = null; schedule(); });
+    // 换页面 / 换视频：评论区的排序和变暗一起还原（不只是清掉工具条上的状态）
+    store.on('route', () => { ui.routeAt = Date.now(); stopLoaders('route'); closePop(); C.hideDetail(true); if (CE.state.applied) CE.restore(); CE.state.mode = null; CE.state.highlight = null; schedule(); });
     store.on('settings', (p) => { if (p && p.enabledChanged) applyEnabled(); });
     setInterval(() => U.trap('ui.watch', watchdog), 1000);
     document.addEventListener('keydown', (e) => {
@@ -136,16 +137,17 @@
       const tone = st.reason === 'login' || st.reason === 'captcha' || st.reason === 'stalled' ? 'warn' : '';
       // 加载器把页面拖到了最底下。排过序、而且是读完或到上限：自动回到第 1 名（底下是排名最靠后的）；
       // 其他停止原因（被拦、手动停）不替用户跳走，给一个"看排名"
-      if (S.view.active && (st.reason === 'end' || st.reason === 'cap')) {
+      if (S.view.active && (st.reason === 'end' || st.reason === 'cap') && pageCount() > st.startCount) {
         requestAnimationFrame(() => { update(); scrollToListTop(); });
         return announce(st.message() + '，已回到第 1 名', tone);
       }
       announce(st.message(), tone, S.view.active ? { label: '看排名', run: scrollToListTop } : null);
     },
   });
+  const COMMENT_CAP = 500;
   const commentLoader = L.create({
     count: () => A.commentRows().length,
-    cap: () => 500,
+    cap: () => COMMENT_CAP,
     blocked: () => A.blockingReason(),
     hasMore: () => { const m = commentMeta(); return m ? m.hasMore : undefined; },
     // 评论区没了（例如关掉了视频弹层）就停，绝不退回去滚动整个页面
@@ -154,11 +156,15 @@
     onChange: (st) => {
       schedule();
       if (st.running || !st.reason || st.reason === 'route') return;
+      const n = A.commentRows().length;
       const done = st.reason === 'end' || st.reason === 'cap';
-      const msg = done ? '评论读完了，共 ' + A.commentRows().length + ' 条' : st.message();
-      const tone = st.reason === 'login' || st.reason === 'captcha' ? 'warn' : '';
-      // 和搜索页一致：按赞 / 按回复排着时读完，自动回到第 1 条；没排序就给一个"回到第 1 条"
-      if (done && CE.state.mode) {
+      // 读到上限 ≠ 读完：说清楚门槛词只按已读的统计
+      const total = currentComments().total;
+      const msg = st.reason === 'cap' ? '评论读了 ' + n + ' 条，到了上限' + (total > n ? '（共 ' + total + ' 条），门槛词只按已读的统计' : '')
+        : st.reason === 'end' ? '评论读完了，共 ' + n + ' 条' : st.message();
+      const tone = st.reason === 'login' || st.reason === 'captcha' || st.reason === 'cap' ? 'warn' : '';
+      // 和搜索页一致：按赞 / 按回复排着时读完，自动回到第 1 条（这一轮确实读到了新评论才跳）；没排序就给一个"回到第 1 条"
+      if (done && CE.state.mode && n > st.startCount) {
         requestAnimationFrame(() => { update(); scrollToCommentTop(); });
         return announce(msg + '，已回到第 1 条', tone);
       }
@@ -401,10 +407,11 @@
       const excludedHigh = active ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
       vm.status = P.statusLine({
         health, blocked, count: vm.count, total: works, strongNeed: tiers.high, sorted: active,
-        // 看法和指标已经写在"排序"按钮上；只有纯达标线时才在状态句里说明条件
-        sortText: !sorted ? '达标线：' + P.filterText(S.view.filter) : '',
         shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh,
       });
+      // 看法写在"排序"按钮上、达标线条件在按钮角标和弹层里，状态句不重复；悬停状态句看全文和条件
+      vm.statusTitle = vm.status.map((s) => s.t).filter(Boolean).join(' · ') +
+        (vm.filterCount ? '\n达标线：' + P.filterText(S.view.filter) : '') + (lens ? '\n看法：' + lens.label + '（' + lens.desc + '）' : '');
       if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果过达标线', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
       T.renderBar(ui.bar, vm);
       ui.vm = Object.assign(vm, { passCount, view, base, lens, topN });
@@ -478,6 +485,7 @@
     const cc = currentComments();
     const all = [...cc.map.values()];
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
+    ui.commentStatsBase = all.length || rows.length; // 门槛词是按多少条统计的
     const m = commentMeta();
     const vid = S.route.modalId || S.route.awemeId || '';
     const raw = store.findVideo(vid);
@@ -489,6 +497,7 @@
       mode: CE.state.mode, highlight: CE.state.highlight, hits: ui.commentHits || 0, cursor: ui.commentCursor,
       loaded: Math.max(rows.length, cc.map.size), total: cc.total,
       loading: commentLoader.running, done: !!(m && m.hasMore === false && !commentLoader.running && rows.length >= cc.map.size),
+      atCap: !commentLoader.running && rows.length >= COMMENT_CAP,
       stats,
     }, commentApi);
   }
@@ -521,7 +530,7 @@
       const all = CE.collected();
       const picks = (k ? all.filter((c) => E.barrierHits(c.text).includes(k)) : all).slice(0, 5).map((c) => c.text);
       const rows = A.commentRows().length;
-      const comments = { stats: ui.commentStats || {}, loaded: Math.max(rows, cc.map.size), total: cc.total, picks };
+      const comments = { stats: ui.commentStats || {}, loaded: ui.commentStatsBase || Math.max(rows, cc.map.size), total: cc.total, picks };
       if (!store.addCandidate(vid, { comments })) return announce('没找到这条视频的数据：从搜索结果或博主主页点进来再试', 'warn');
       announce(had ? '已更新这条候选的评论结论' : '已加入候选篮（含评论结论）· 共 ' + S.candidates.size + ' 条');
       schedule();
@@ -538,7 +547,11 @@
       update();
       if (CE.state.highlight) focusHit(0);
     },
-    toggleLoad: () => { if (commentLoader.running) commentLoader.stop('user'); else commentLoader.start(); },
+    toggleLoad: () => {
+      if (commentLoader.running) return commentLoader.stop('user');
+      if (A.commentRows().length >= COMMENT_CAP) return announce('评论已经读到上限，门槛词只按已读的统计', 'warn');
+      commentLoader.start();
+    },
     jump: (dir) => {
       const n = hitRows().length;
       if (!n) return;
@@ -633,18 +646,21 @@
       const keep = new Set(top);
       const before = []; // [id, 改动前的条目拷贝；新加的为 null]，撤销用
       const snap = (id) => { const c = S.candidates.get(id); return c ? JSON.parse(JSON.stringify(c)) : null; };
-      let stale = 0, added = 0, moved = 0;
+      let stale = 0, added = 0, moved = 0, other = 0;
+      // 只有"这个会话（含官方筛选）、这个看法下、作为前 N 加入过"的，掉出前 N 才标"已不在"；手动点 ☆ 加的不动
       for (const [id, c] of S.candidates) {
         const x = c.extra || {};
-        if (keep.has(id) || !x.rank || x.lensLabel !== label || c.source !== S.sessionLabel) continue;
+        if (keep.has(id) || !x.topN || x.rankSession !== S.session || x.lensLabel !== label) continue;
         before.push([id, snap(id)]);
-        store.addCandidate(id, { rank: 0, rankStale: n, rankOf: null });
+        store.addCandidate(id, { rank: 0, rankWas: x.rank, rankStale: x.topN, rankOf: null, topN: 0 });
         stale++;
       }
       for (const id of top) {
         const old = snap(id);
+        // 从别的来源（别的关键词、别的筛选、别的博主）加进来的：名次属于那个来源，不改
+        if (old && old.srcSession !== S.session) { other++; continue; }
         before.push([id, old]);
-        store.addCandidate(id, extraFor(id));
+        store.addCandidate(id, Object.assign(extraFor(id), { topN: n }));
         if (!old) added++;
         else if ((old.extra || {}).rank !== ui.rank.get(id) || (old.extra || {}).lensLabel !== label) moved++;
       }
@@ -652,7 +668,8 @@
       if (added) parts.push('加入 ' + added + ' 条');
       if (moved) parts.push(moved + ' 条更新了名次');
       if (stale) parts.push(stale + ' 条已不在前 ' + n + ' 名');
-      if (!parts.length) return announce('前 ' + n + ' 条都已经在候选篮里了，名次没变');
+      if (other) parts.push(other + ' 条之前从别处加过，名次不改');
+      if (!added && !moved && !stale) return announce('前 ' + n + ' 条都已经在候选篮里了' + (other ? '（' + other + ' 条来自别处）' : '，名次没变'));
       const works = S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0;
       const count = ui.vm ? ui.vm.count : 0;
       const partial = works > count ? '（只按已读 ' + count + ' / ' + works + ' 条，读完后可以再加一次更新名次）' : '';
@@ -742,6 +759,9 @@
     if (r && S.view.sortKeys.length) {
       x.rank = r;
       x.rankStale = 0;
+      x.rankWas = 0;
+      x.topN = 0; // 手动加入；"把前 N 条加入候选"会改成 N
+      x.rankSession = S.session;
       const lens = P.matchLens(S.view);
       x.lensLabel = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
       // 名次是在"当时读到的这些"里排的：记下读了多少、账号一共多少

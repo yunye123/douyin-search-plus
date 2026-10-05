@@ -52,9 +52,10 @@ test('状态句', () => {
   const s = P.statusLine({ health: 'ok', count: 20, strongNeed: 3, sorted: false });
   assert.deepEqual(s.map((x) => x.t), ['已读取 20 条', '真需求 3 条', '样本较少，建议继续加载']);
   const t = P.statusLine({ health: 'ok', count: 120, sorted: true, shown: 86, excludedHigh: 2 });
-  assert.deepEqual(t.map((x) => x.t), ['已读取 120 条', '达标 86 条', '另有 2 条真需求没过线']);
+  assert.deepEqual(t.map((x) => x.t), ['达标 86 条', '已读取 120 条', '另有 2 条真需求没过线']);
+  // 结果（达标 N 条）放最前：窗口窄被截断时丢的是次要信息
   // 主页没读全：显示 18 / 60，并提示排名还不准
   const p = P.statusLine({ health: 'ok', count: 18, total: 60, sorted: true, shown: 10 });
-  assert.deepEqual(p.map((x) => x.t), ['已读取 18 / 60 条，排名还不准', '达标 10 条']);
+  assert.deepEqual(p.map((x) => x.t), ['达标 10 条', '已读取 18 / 60 条，排名还不准']);
   assert.match(P.statusLine({ health: 'fail' })[0].t, /读不到/);
 });

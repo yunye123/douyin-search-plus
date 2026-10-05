@@ -248,6 +248,8 @@
       detail.cur = v.id;
       detail.pinned = !!pinned;
       detail.anchor = anchor;
+      detail.anchorTop = r.top;
+      detail.cardEl = opts.cardEl || null;
       if (pinned) { const f = box.querySelector('[data-autofocus]'); if (f) f.focus({ preventScroll: true }); }
     }, pinned ? 0 : 400);
   }
@@ -262,13 +264,35 @@
     clearTimeout(detail.t);
     if (now) clearTimeout(detail.hideT);
     if (!detail.el) return;
-    const anchor = detail.anchor, wasPinned = detail.pinned;
+    const anchor = currentAnchor(), wasPinned = detail.pinned;
     detail.el.remove();
-    detail.el = null; detail.cur = null; detail.pinned = false; detail.anchor = null;
+    detail.el = null; detail.cur = null; detail.pinned = false; detail.anchor = null; detail.cardEl = null;
     if (restoreFocus && wasPinned && anchor && anchor.isConnected) anchor.focus({ preventScroll: true });
   }
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && detail.el) { e.stopPropagation(); hideDetail(true, true); } }, true);
-  window.addEventListener('scroll', () => { if (detail.el) hideDetail(true, false); }, { passive: true, capture: true });
+  // 页面滚动、标签跟着移动了才处理（打开前那次聚焦滚动的事件会晚一帧才到，不能把刚打开的卡关掉）：
+  // 悬停打开的卡直接关；键盘钉住的卡跟着标签走（例如抖音自动加载了更多结果、列表重排），标签移出屏幕才关
+  // 详情卡对应的收藏率标签。卡片角标重建过（例如列表重排后名次变了）时，换成同一张卡上的新标签
+  function currentAnchor() {
+    if (detail.anchor && detail.anchor.isConnected) return detail.anchor;
+    const x = detail.cardEl && detail.cardEl.isConnected && anns.get(detail.cardEl);
+    const chip = x && x.root.querySelector('.chip');
+    if (chip) detail.anchor = chip;
+    return chip || null;
+  }
+  window.addEventListener('scroll', () => {
+    if (!detail.el) return;
+    const a = currentAnchor();
+    const r = a ? a.getBoundingClientRect() : null;
+    if (r && Math.abs(r.top - detail.anchorTop) < 2) return;
+    if (r && detail.pinned && r.bottom > 0 && r.top < window.innerHeight) {
+      const hh = detail.el.offsetHeight;
+      detail.el.style.top = Math.round(Math.min(Math.max(8, r.top - 8), window.innerHeight - hh - 8)) + 'px';
+      detail.anchorTop = r.top;
+      return;
+    }
+    hideDetail(true, false);
+  }, { passive: true, capture: true });
   document.addEventListener('pointerdown', (e) => {
     if (!detail.el || !detail.pinned) return;
     const path = e.composedPath();

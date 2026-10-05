@@ -96,16 +96,17 @@
     if (o.health === 'blocked') return [{ t: o.blocked === 'captcha' ? '抖音弹出了安全验证，请先手动完成' : '抖音要求登录，登录后才能继续读取', tone: 'warn' }];
     // total：账号作品总数（主页能读到时）。没读全时写成"已读取 18 / 60 条"，提醒排名还不准
     const of = o.total && o.total > o.count ? ' / ' + o.total : '';
-    if (o.loading) out.push({ t: '正在加载 ' + o.count + ' / ' + (o.total && o.total < o.cap ? o.total : o.cap) + ' 条', tone: 'em' });
-    // 排过序但没读全：直接在这一段说"排名还不准"，不另起一段
-    else out.push(of && o.sorted ? { t: '已读取 ' + o.count + of + ' 条，排名还不准', tone: 'warn' } : { t: '已读取 ' + o.count + of + ' 条', tone: '' });
+    const read = o.loading ? { t: '正在加载 ' + o.count + ' / ' + (o.total && o.total < o.cap ? o.total : o.cap) + ' 条', tone: 'em' }
+      // 排过序但没读全：直接在这一段说"排名还不准"，不另起一段
+      : of && o.sorted ? { t: '已读取 ' + o.count + of + ' 条，排名还不准', tone: 'warn' } : { t: '已读取 ' + o.count + of + ' 条', tone: '' };
     if (o.sorted) {
-      // 当前看法已经写在"排序"按钮上，这里只说结果（避免状态句过长被截断）
-      if (o.sortText) out.push({ t: o.sortText, tone: 'em' });
+      // 结果放最前面：窗口窄时被省略号截掉的只是后面的次要信息（全文在悬停提示里）
       out.push({ t: '达标 ' + o.shown + ' 条', tone: 'em' });
+      out.push(read);
       if (o.excludedHigh) out.push({ t: '另有 ' + o.excludedHigh + ' 条真需求没过线', tone: 'dim' });
-    } else if (o.count) {
-      out.push({ t: '真需求 ' + o.strongNeed + ' 条', tone: o.strongNeed ? 'em' : 'dim' });
+    } else {
+      out.push(read);
+      if (o.count) out.push({ t: '真需求 ' + o.strongNeed + ' 条', tone: o.strongNeed ? 'em' : 'dim' });
     }
     if (o.count && !o.loading && o.count < SAMPLE_LOW && !(of && o.sorted)) out.push({ t: o.sorted ? '样本少，排名还不准' : '样本较少，建议继续加载', tone: 'dim' });
     return out;

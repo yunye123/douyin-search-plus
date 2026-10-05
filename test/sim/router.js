@@ -89,7 +89,7 @@ function createSim() {
       const cursor = Number(url.searchParams.get('cursor') || 0);
       const count = Number(url.searchParams.get('count') || 20);
       const slice = list.slice(cursor, cursor + count);
-      return jsonRes({ status_code: 0, comments: slice.map(data.toApiComment), has_more: cursor + count < list.length ? 1 : 0, cursor: cursor + count, total: list.length });
+      return jsonRes({ status_code: 0, comments: slice.map((c) => Object.assign(data.toApiComment(c), { aweme_id: aid })), has_more: cursor + count < list.length ? 1 : 0, cursor: cursor + count, total: list.length });
     }
     if (p.startsWith('/aweme/v1/web/aweme/detail')) return jsonRes({ status_code: 0, aweme_detail: data.toApiAweme(videoOf(url.searchParams.get('aweme_id') || '')) });
     // 仿真专用：详情区 fiber 的数据（路径不像抖音接口，数据桥不会拦截）

@@ -102,7 +102,8 @@
     // 页面每次重画都会按当前会话记一份计数；会话对不上（刚换关键词、还没画）就退回会话总数
     const c = DSP.ui && DSP.ui.counts && DSP.ui.counts.session === S.session ? DSP.ui.counts : null;
     return {
-      type: S.route.type,
+      // 精选、推荐流里点开的视频弹层也有评论区：按视频页说
+      type: S.route.modalId && S.route.type !== 'search' && S.route.type !== 'profile' ? 'video' : S.route.type,
       label: S.sessionLabel,
       // 列表页：和工具栏同一个口径（页面上实际的卡片）；回到搜过的关键词时不把缓存里的旧数据算进来
       count: c ? c.count : S.videos.size,

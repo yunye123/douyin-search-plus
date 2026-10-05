@@ -80,7 +80,7 @@
       const o = x.rankOf;
       if (o && o.total > o.count) s += '（按已读 ' + o.count + ' / ' + o.total + ' 条，没读全）';
       else if (o && o.count) s += '（共 ' + o.count + ' 条里）';
-    } else if (x.rankStale) s += ' · ' + lens + '已不在前 ' + x.rankStale + ' 名';
+    } else if (x.rankStale) s += ' · ' + lens + '已不在前 ' + x.rankStale + ' 名' + (x.rankWas ? '（之前第 ' + x.rankWas + ' 名）' : '');
     return s;
   }
   const accountText = (a) => (a ? [a.fans ? '粉丝 ' + U.fmtNum(a.fans) : '', a.likes ? '获赞 ' + U.fmtNum(a.likes) : '', a.works ? '作品 ' + a.works : ''].filter(Boolean).join(' · ') : '');

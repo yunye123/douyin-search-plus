@@ -92,13 +92,15 @@ async function init() {
   setText('#version', 'v' + manifest.version);
   let settings = await getSettings();
   const tab = await activeTab();
-  const st = await pageStatus(tab);
+  let st = await pageStatus(tab);
 
   const sw = $('#enabled');
   sw.checked = !!settings.enabled;
   sw.addEventListener('change', async () => {
     settings = await patchSettings({ enabled: sw.checked });
     renderStatus(st, settings);
+    // 页面恢复后数据会重新读：稍等一下再问一次，免得停在打开弹窗那一刻的旧数字
+    if (sw.checked) setTimeout(async () => { st = await pageStatus(tab); renderStatus(st, settings); }, 900);
   });
   const badges = $('#badges');
   badges.checked = !!settings.badges;

@@ -26,6 +26,18 @@
       return keys.map((k) => k + '=' + o[k]).join('&');
     } catch (e) { return String(s); }
   }
+  // 抖音官方筛选 → 给人看的名字（来源名里用，例如 搜索「kw」· 一周内 · 最多点赞）
+  const FILTER_NAMES = {
+    publish_time: { 1: '一天内', 7: '一周内', 180: '半年内' },
+    sort_type: { 1: '最多点赞', 2: '最新发布' },
+    filter_duration: { '0-1': '1 分钟以内', '1-5': '1~5 分钟', '5-10000': '5 分钟以上' },
+  };
+  function filterLabel(nf) {
+    if (!nf) return '';
+    const names = nf.split('&').map((kv) => { const [k, v] = kv.split('='); return (FILTER_NAMES[k] && FILTER_NAMES[k][v]) || ''; });
+    const known = names.filter(Boolean);
+    return known.length ? ' · ' + known.join(' · ') : ' · 已筛选';
+  }
   function routeOf(loc) {
     const path = loc.pathname || '/';
     const qs = new URLSearchParams(loc.search || '');
@@ -126,7 +138,7 @@
       // 只有"第一页"的接口响应能切换官方筛选会话；翻页响应（offset>0）的筛选和当前会话对不上，
       // 说明是切换筛选前发出的旧请求晚到了，直接丢弃，不把会话切回去
       if (key !== S.session && ctx.source === 'api' && Number(ctx.offset) > 0) return 0;
-      setSession(key, '搜索「' + r.kw + '」');
+      setSession(key, '搜索「' + r.kw + '」' + filterLabel(normFilter(ctx.filter)));
     } else if (r.type === 'profile') {
       if (ctx.source === 'api' && ctx.endpoint !== 'profile') return 0;
       if (ctx.source === 'fiber' && ctx.path && ctx.path.indexOf('/user/') !== 0) return 0;
@@ -252,6 +264,16 @@
   const KEY_SETTINGS = 'dsp.settings';
   const KEY_CANDS = 'dsp.candidates';
   const MAX_CANDS = 500;
+  // 交给过 Agent 的作品（id → 复制时间），最多 2000 条。移出候选、清空候选篮都不删：
+  // 之后再加入同一条，入库包会写"之前交给过你，请更新原条目"，Agent 不会建重复条目
+  const KEY_HANDED = 'dsp.handed';
+  const MAX_HANDED = 2000;
+  let handed = new Map();
+  function persistHanded() {
+    while (handed.size > MAX_HANDED) handed.delete(handed.keys().next().value);
+    if (!hasChrome()) return;
+    try { chrome.storage.local.set({ [KEY_HANDED]: [...handed] }); } catch (e) { /* 忽略 */ }
+  }
 
   function saveSettings(patch) {
     Object.assign(S.settings, patch);
@@ -307,7 +329,13 @@
     if (old && !extra) return true;
     const rec = {};
     for (const k of ['id', 'kind', 'desc', 'author', 'authorId', 'createTime', 'durationMs', 'cover', 'digg', 'comment', 'collect', 'share', 'capturedAt']) rec[k] = v[k];
-    const entry = old || { rec, addedAt: now(), source: S.sessionLabel, srcType: S.route.type };
+    const entry = old || { rec, addedAt: now(), source: S.sessionLabel, srcType: S.route.type, srcSession: S.session };
+    // 移出过、之前已经交给过 Agent 的：带回复制时间，并作为"更新"再给一次（不当成新选题）
+    if (!old && handed.has(id)) {
+      entry.copiedAt = handed.get(id);
+      entry.updatedAt = now();
+      entry.updateNote = '重新加入候选（' + U.fmtDate(entry.copiedAt) + ' 交给过）';
+    }
     if (extra) {
       const prev = entry.extra || {};
       entry.extra = Object.assign({}, prev, extra);
@@ -339,7 +367,12 @@
   // 复制过入库包的候选记上时间，下次默认只复制新加入的（和有更新的）
   function markCopied(ids) {
     const t = now();
-    for (const id of ids) { const c = S.candidates.get(id); if (c) { c.copiedAt = t; delete c.updatedAt; delete c.updateNote; } }
+    for (const id of ids) {
+      const c = S.candidates.get(id);
+      if (c) { c.copiedAt = t; delete c.updatedAt; delete c.updateNote; }
+      handed.delete(id); handed.set(id, t);
+    }
+    persistHanded();
     persistCandidates();
     ev.emit('candidates');
   }
@@ -376,8 +409,9 @@
     return new Promise((resolve) => {
       if (!hasChrome()) return resolve();
       try {
-        chrome.storage.local.get([KEY_SETTINGS, KEY_CANDS, KEY_SEEN], (res) => {
+        chrome.storage.local.get([KEY_SETTINGS, KEY_CANDS, KEY_SEEN, KEY_HANDED], (res) => {
           if (res && res[KEY_SETTINGS]) Object.assign(S.settings, res[KEY_SETTINGS]);
+          if (res && Array.isArray(res[KEY_HANDED])) handed = new Map(res[KEY_HANDED].filter((e) => Array.isArray(e) && e[0]));
           if (res && Array.isArray(res[KEY_SEEN])) {
             for (const r of res[KEY_SEEN]) if (r && r.id && !seen.has(r.id)) seen.set(r.id, r);
           }
@@ -394,6 +428,7 @@
             Object.assign(S.settings, changes[KEY_SETTINGS].newValue);
             ev.emit('settings', { remote: true, enabledChanged: prev !== S.settings.enabled });
           }
+          if (changes[KEY_HANDED] && Array.isArray(changes[KEY_HANDED].newValue)) handed = new Map(changes[KEY_HANDED].newValue);
           if (changes[KEY_CANDS]) {
             const arr = changes[KEY_CANDS].newValue || [];
             S.candidates = new Map(arr.filter((c) => c && c.rec && c.rec.id).map((c) => [c.rec.id, c]));

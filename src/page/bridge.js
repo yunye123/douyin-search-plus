@@ -96,6 +96,7 @@
       replies: num(pick(c, ['reply_comment_total', 'replyCommentTotal'])),
       nickname: str(user.nickname),
       createTime: ct,
+      aid: str(pick(c, ['aweme_id', 'awemeId'])),
       ip: str(pick(c, ['ip_label', 'ipLabel'])),
     };
   }
@@ -423,8 +424,9 @@
   function harvestComments() {
     const rows = document.querySelectorAll('[data-e2e="comment-item"]');
     if (!rows.length) return;
-    const items = [];
+    const groups = new Map(); // 视频 id -> 评论
     const now = Date.now();
+    const cur = currentVideoId();
     for (const row of rows) {
       // 已盖章的行跳过；读不到 fiber 的行按 2 秒、10 秒退避重试两次，之后不再试（避免每次 DOM 变化都对几百行做广度搜索）
       const prev = stampedComments.get(row);
@@ -432,19 +434,19 @@
       if (prev && (prev.tries >= 3 || now < prev.next)) continue;
       const c = fiberComment(row);
       if (!c) { const tries = prev ? prev.tries + 1 : 1; stampedComments.set(row, { ok: false, tries, next: now + (tries === 1 ? 2000 : 10000) }); continue; }
-      stampedComments.set(row, { ok: true, at: now });
+      // 这条评论属于哪条视频：评论自己带的视频 id 优先；没有就沿用第一次读到它时的地址（不随换视频改变）
+      const aid = c.aid || (prev && prev.aid) || cur;
+      stampedComments.set(row, { ok: true, at: now, aid });
       markHydrated();
       row.setAttribute('data-dsp-cid', c.cid);
       row.setAttribute('data-dsp-digg', String(c.digg));
       row.setAttribute('data-dsp-replies', String(c.replies));
-      items.push(c);
+      // 换视频后旧评论还留在页面上：不报给当前视频
+      if (cur && aid && aid !== cur) continue;
+      if (!groups.has(aid)) groups.set(aid, []);
+      groups.get(aid).push(c);
     }
-    if (items.length) {
-      const qs = new URLSearchParams(location.search);
-      const seg = location.pathname.split('/');
-      const awemeId = qs.get('modal_id') || (/^(video|note)$/.test(seg[1]) ? seg[2] : '') || '';
-      post({ type: 'comments', awemeId, total: 0, items, source: 'fiber' });
-    }
+    for (const [aid, list] of groups) post({ type: 'comments', awemeId: aid, total: 0, items: list, source: 'fiber' });
   }
 
   // 节流的 DOM 观察 + 低频兜底轮询

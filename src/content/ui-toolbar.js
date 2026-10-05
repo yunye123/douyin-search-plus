@@ -76,6 +76,7 @@
     bar.classList.toggle('is-tight', vm.width < 880);
     // 状态句：内容变了才重写（这里是 live region，每秒重写会让读屏反复朗读同一句）
     const sig = vm.status.map((s) => s.tone + ':' + s.t).join('|');
+    if (els.text.title !== (vm.statusTitle || '')) els.text.title = vm.statusTitle || '';
     if (t.statusSig !== sig) {
       t.statusSig = sig;
       clear(els.text);
@@ -366,8 +367,8 @@
 .lens-ck { color: var(--red-text); }
 .metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 2px; }
 .metric { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 44px; border-radius: 8px; background: var(--s1); font-size: 13px; line-height: 18px; }
-:host([data-theme="light"]) .metric { background: var(--s2); }
-.metric:hover { background: var(--s3); }
+:host([data-theme="light"]) .metric:not(.on) { background: var(--s2); }
+.metric:not(.on):hover, :host([data-theme="light"]) .metric:not(.on):hover { background: var(--s3); }
 .metric .fx { color: var(--t3); font-size: 10px; line-height: 14px; }
 .metric.on { background: var(--red-soft); color: var(--red-text); box-shadow: inset 0 0 0 1px var(--red-line); font-weight: 600; }
 .metric.on .fx { color: var(--red-text); opacity: .8; }
@@ -393,8 +394,8 @@
 .pf-meter i { display: block; height: 100%; background: var(--tier-high); transition: width 200ms var(--ease); }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 6px; }
 .qchip { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 12px; border-radius: 15px; background: var(--s1); color: var(--t1); font-size: 13px; }
-:host([data-theme="light"]) .qchip { background: var(--s2); }
-.qchip:hover { background: var(--s3); }
+:host([data-theme="light"]) .qchip:not(.on) { background: var(--s2); }
+.qchip:not(.on):hover, :host([data-theme="light"]) .qchip:not(.on):hover { background: var(--s3); }
 .qchip.on { background: var(--tier-high-soft); color: var(--tier-high-text); box-shadow: inset 0 0 0 1px rgba(37,244,238,.4); font-weight: 600; }
 .in-row { display: flex; align-items: center; gap: 10px; padding: 4px 6px; }
 .in-k { width: 40px; color: var(--t2); flex: none; }
