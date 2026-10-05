@@ -51,16 +51,31 @@
   const anns = new WeakMap();
   const live = new Set();
 
+  // 角标的定位上下文：只给原本是 static 的卡片补 position:relative（绝不覆盖抖音自己的定位）。
+  // 用行内样式而不是类名：React 重写 className 时类名会被冲掉，行内的单个属性不会。
+  // 是否需要按"标签+类名"缓存，同一列表的卡片只读一次计算样式（避免每张新卡都强制布局）。
+  const relCache = new Map();
+  const relSet = new Set();
+  function ensureRel(el) {
+    if (el.style.position) return;
+    const key = el.tagName + '.' + String(el.className).replace(/\bdsp-\S+/g, '').trim();
+    let need = relCache.get(key);
+    if (need === undefined) { need = getComputedStyle(el).position === 'static'; relCache.set(key, need); }
+    if (need) { el.style.position = 'relative'; relSet.add(el); }
+  }
+
   function ensureHost(card) {
+    ensureRel(card.el);
     let a = anns.get(card.el);
     if (a && a.host.isConnected && a.host.parentNode === card.el) return a;
-    if (getComputedStyle(card.el).position === 'static') card.el.classList.add('dsp-rel');
     const host = document.createElement('div');
     host.className = 'dsp-ann';
     host.setAttribute('data-dsp-own', '');
     const root = host.attachShadow({ mode: 'open' });
     styleCard(root);
     card.el.appendChild(host);
+    // 角标出现时鼠标可能已经停在卡片上（收不到 pointerenter），直接补上悬停状态
+    try { if (card.el.matches(':hover')) host.classList.add('hover'); } catch (e) { /* 忽略 */ }
     if (!card.el.__dspHover) {
       card.el.__dspHover = true;
       card.el.addEventListener('pointerenter', () => { const x = anns.get(card.el); if (x) x.host.classList.add('hover'); });
@@ -130,14 +145,16 @@
     for (const el of live) {
       const a = anns.get(el);
       if (a && a.host.isConnected) a.host.remove();
-      el.classList.remove('dsp-rel');
       anns.delete(el);
     }
     live.clear();
+    for (const el of relSet) if (el.style.position === 'relative') el.style.position = '';
+    relSet.clear();
   }
   // 清掉不再在列表里的卡片的记录
   function prune() {
     for (const el of live) if (!el.isConnected) { live.delete(el); anns.delete(el); }
+    for (const el of relSet) if (!el.isConnected) relSet.delete(el);
   }
 
   // ---------------- 详情卡 ----------------

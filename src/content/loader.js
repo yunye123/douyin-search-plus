@@ -76,15 +76,18 @@
 
   // 通用的"往下滚"：窗口滚到底 → 把最后一张卡滚进视野 → 找可滚动的祖先滚到底；
   // 每隔一轮先往回滚一点再滚到底，让"到底才加载"的触发器重新感知到进入视野
+  // 对"真正在滚动的那个元素"操作（可能是某个容器、body 或 html），window.scrollTo 只作补充
   function scrollToEnd(lastEl, round) {
-    const doc = document.scrollingElement || document.documentElement;
-    if (round % 2 === 1) window.scrollTo(0, Math.max(0, doc.scrollHeight - window.innerHeight - 700));
-    setTimeout(() => {
-      window.scrollTo(0, doc.scrollHeight);
+    const sc = (lastEl && DSP.adapters && DSP.adapters.scrollerOf(lastEl)) || document.scrollingElement || document.documentElement;
+    const toEnd = () => {
+      sc.scrollTop = sc.scrollHeight;
+      window.scrollTo(0, document.documentElement.scrollHeight);
       if (lastEl && lastEl.isConnected) lastEl.scrollIntoView({ block: 'end' });
-      const sc = lastEl && DSP.adapters && DSP.adapters.scrollerOf(lastEl);
-      if (sc) sc.scrollTop = sc.scrollHeight;
-    }, round % 2 === 1 ? 160 : 0);
+    };
+    if (round % 2 === 1) {
+      sc.scrollTop = Math.max(0, sc.scrollHeight - sc.clientHeight - 700);
+      setTimeout(toEnd, 160);
+    } else toEnd();
   }
 
   DSP.loader = { decide, create, scrollToEnd, REASONS, STALL_TICKS };

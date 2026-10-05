@@ -14,31 +14,16 @@
     search: [
       { name: 'scroll-list@2026-10', find: () => document.querySelector('#search-result-container ul[data-e2e="scroll-list"]') },
       { name: 'waterfall@2026-07', find: () => { const c = document.querySelector('[id^="waterfall_item_"]'); return c && c.parentElement; } },
-      { name: 'stamped', find: () => stampedParent(document.querySelector('#search-result-container') || document.body) },
       { name: 'heuristic', find: () => heuristicList(document.querySelector('#search-result-container') || mainArea()) },
     ],
     profile: [
       { name: 'user-post-list@2026-10', find: () => { const r = document.querySelector('[data-e2e="user-post-list"]'); return r && (r.querySelector('ul[data-e2e="scroll-list"]') || r.querySelector('ul')); } },
-      { name: 'stamped', find: () => stampedParent(document.querySelector('[data-e2e="user-post-list"]') || document.body) },
       { name: 'heuristic', find: () => heuristicList(document.querySelector('[data-e2e="user-post-list"]') || mainArea()) },
     ],
   };
 
   function mainArea() {
     return document.querySelector('main') || document.querySelector('#root') || document.body;
-  }
-
-  // 数据桥盖过章（data-dsp-aid）的卡片按父节点分组，取最大的一组
-  function stampedParent(scope) {
-    if (!scope) return null;
-    const groups = new Map();
-    for (const el of scope.querySelectorAll('[data-dsp-aid]')) {
-      const p = el.parentElement;
-      if (p) groups.set(p, (groups.get(p) || 0) + 1);
-    }
-    let best = null, n = 0;
-    for (const [p, c] of groups) if (c > n) { best = p; n = c; }
-    return n >= 3 ? best : null;
   }
 
   // 启发式："同一父节点下、重复出现、各自带一个视频链接的子节点"最多的那个父节点就是列表
@@ -80,8 +65,7 @@
       if (child.id === 'dsp-dock' || child.hasAttribute('data-dsp-own')) continue;
       const a = child.matches(LINK_SEL) ? child : child.querySelector(LINK_SEL);
       const m = a && ID_RE.exec(a.getAttribute('href') || '');
-      // 链接里的 id 最直接；没有链接时用数据桥盖的章
-      const id = (m && m[1]) || child.getAttribute('data-dsp-aid') || '';
+      const id = m ? m[1] : '';
       if (!id) continue;
       out.push({ el: child, id, a, img: child.querySelector('img') });
     }
@@ -104,15 +88,19 @@
     return rows;
   }
   // 评论区的滚动容器（向上找第一个可滚动的祖先）
+  // 向上找第一个真正在滚动的祖先；body / html 也算（真实抖音有时是 body 在滚，window.scrollTo 不起作用）
   function scrollerOf(el) {
     let sc = el && el.parentElement;
-    while (sc && sc !== document.body && sc !== document.documentElement) {
-      const cs = getComputedStyle(sc);
-      if (/(auto|scroll|overlay)/.test(cs.overflowY) && sc.scrollHeight > sc.clientHeight + 40) return sc;
+    while (sc) {
+      if (sc.scrollHeight > sc.clientHeight + 40) {
+        if (/(auto|scroll|overlay)/.test(getComputedStyle(sc).overflowY)) return sc;
+        if (sc === document.scrollingElement) return sc;
+      }
       sc = sc.parentElement;
     }
-    return null;
+    return document.scrollingElement || document.documentElement;
   }
+  const isDocScroller = (sc) => !sc || sc === document.body || sc === document.documentElement || sc === document.scrollingElement;
 
   // 从评论 DOM 里读点赞数（没有 fiber 和接口数据时的兜底）：
   // 第一个"旁边有 SVG 图标"的独立纯数字；正文里的数字（QQ 号）没有图标
@@ -181,23 +169,32 @@
 
   // ---------- 页面几何 ----------
   // 顶部固定栏的底边：吸顶工具栏要停在它下面
+  // 逐层往下探：找到一层贴顶的固定/吸顶条后，到它下边缘再找下一层（抖音可能还有吸顶的「综合/视频/筛选」栏）
   function headerBottom() {
     let bottom = 0;
     const xs = [Math.round(window.innerWidth / 2), 260, window.innerWidth - 200];
-    for (const x of xs) {
-      for (const el of document.elementsFromPoint(x, 4)) {
-        if (el.closest && el.closest('#dsp-root, #dsp-dock')) continue;
-        let p = el;
-        while (p && p !== document.body && p !== document.documentElement) {
-          const cs = getComputedStyle(p);
-          if (cs.position === 'fixed' || cs.position === 'sticky') {
-            const r = p.getBoundingClientRect();
-            if (r.top <= 4 && r.height < 200 && r.width > window.innerWidth * 0.5) bottom = Math.max(bottom, r.bottom);
-            break;
+    for (let layer = 0; layer < 4; layer++) {
+      const y = bottom + 4;
+      let found = 0;
+      for (const x of xs) {
+        for (const el of document.elementsFromPoint(x, y)) {
+          if (el.closest && el.closest('#dsp-root, #dsp-dock, #dsp-cbar')) continue;
+          let p = el;
+          while (p && p !== document.body && p !== document.documentElement) {
+            const cs = getComputedStyle(p);
+            if (cs.position === 'fixed' || cs.position === 'sticky') {
+              const r = p.getBoundingClientRect();
+              // sticky 只在确实贴住时才算（当前位置等于它的 top 值）
+              const stuck = cs.position === 'fixed' || Math.abs(r.top - (parseFloat(cs.top) || 0)) < 2;
+              if (stuck && r.top <= y && r.bottom > y && r.height < 200 && r.width > window.innerWidth * 0.4) found = Math.max(found, r.bottom);
+              break;
+            }
+            p = p.parentElement;
           }
-          p = p.parentElement;
         }
       }
+      if (found <= bottom) break;
+      bottom = found;
     }
     return Math.round(bottom);
   }
@@ -254,7 +251,6 @@
       out.strategies[s.name] = el ? cardsOf(el).length : 0;
     }
     out.links = document.querySelectorAll(LINK_SEL).length;
-    out.stamped = document.querySelectorAll('[data-dsp-aid]').length;
     out.commentItems = document.querySelectorAll('[data-e2e="comment-item"]').length;
     out.blocking = blockingReason();
     const located = locateList(type);
@@ -266,7 +262,7 @@
 
   DSP.adapters = {
     ID_RE, LINK_SEL, LIST_STRATEGIES,
-    locateList, cardsOf, commentList, commentRows, scrollerOf, domCommentDigg, normText,
+    locateList, cardsOf, commentList, commentRows, scrollerOf, isDocScroller, domCommentDigg, normText,
     blockingReason, headerBottom, pageTheme, profileStats, diagnose,
   };
 })();

@@ -4,8 +4,12 @@
 /* 角标定位上下文：只给原本是 static 的卡片补，绝不覆盖抖音给卡片设的定位方式 */
 .dsp-rel { position: relative !important; }
 
-/* 原地重排：块级列表临时转成 flex 换行，卡片用 order 排 */
-.dsp-flow { display: flex !important; flex-wrap: wrap !important; align-items: flex-start !important; }
+/* 原地重排：卡片用 style.order 排；列表里不是作品卡的子节点（直播卡、骨架屏、加载占位）统一排最后 */
+.dsp-sorted > * { order: 99999; }
+/* 块级列表（例如主页网格）排序时临时改成固定列数的 CSS 网格，列数、卡宽、间距按原布局量出 */
+.dsp-grid { display: grid !important; grid-template-columns: repeat(var(--dsp-cols), var(--dsp-cw)) !important;
+  column-gap: var(--dsp-cg) !important; row-gap: var(--dsp-rg) !important; justify-content: start !important; align-items: start !important; }
+.dsp-grid > * { margin: 0 !important; width: auto !important; }
 
 /* 未达标的结果：变暗沉底，鼠标移上去恢复，不隐藏 */
 .dsp-dim { opacity: 0.32 !important; filter: saturate(0.5); transition: opacity 160ms ease, filter 160ms ease; }

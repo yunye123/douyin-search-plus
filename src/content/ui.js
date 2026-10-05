@@ -30,6 +30,10 @@
   DSP.ui = ui;
 
   const version = () => { try { return chrome.runtime.getManifest().version; } catch (e) { return ''; } };
+  // 页面注水完成前不往抖音的 React 树里插节点：数据桥读到 fiber 时会标记；读不到 fiber 的页面，load 后 2.5 秒兜底
+  ui.loadAt = document.readyState === 'complete' ? Date.now() : 0;
+  window.addEventListener('load', () => { ui.loadAt = Date.now(); schedule(); }, { once: true });
+  const hydrated = () => document.documentElement.dataset.dspHydrated === '1' || (ui.loadAt > 0 && Date.now() - ui.loadAt > 2500);
 
   // ---------------- 调度 ----------------
   let raf = 0;
@@ -60,11 +64,16 @@
   function watchdog() {
     // 插件在扩展管理页被重载后，这个页面里的脚本已和扩展断开
     if (!ui.stale && DSP.alive && !DSP.alive()) { ui.stale = true; stopLoaders('route'); teardownPage(); schedule(); return; }
+    // 这些测量开销大（强制布局），由看门狗每秒做一次，主更新只读缓存；值变了才触发重画
     const theme = A.pageTheme();
-    ui.theme = theme;
-    ui.headerTop = A.headerBottom();
+    const headerTop = A.headerBottom();
+    const blocked = A.blockingReason();
+    const changed = theme !== ui.theme || headerTop !== ui.headerTop || blocked !== ui.blocked;
+    ui.theme = theme; ui.headerTop = headerTop; ui.blocked = blocked;
     for (const x of [ui.root && ui.root.el, ui.dock && ui.dock.el, ui.cbar && ui.cbar.el]) if (x && x.dataset.theme !== theme) x.dataset.theme = theme;
-    schedule();
+    // 其余情况只在需要随时间变化时重画：识别中（6 秒后会变成"读不到"）、注水兜底计时、加载中；另外每 5 秒保底一次
+    ui.tick = (ui.tick || 0) + 1;
+    if (changed || ui.lastHealth === 'recognizing' || !ui.dock || listLoader.running || ui.tick % 5 === 0) schedule();
   }
 
   // ---------------- 总开关 ----------------
@@ -100,10 +109,12 @@
 
   // ---------------- 自动加载 ----------------
   const isProfile = () => S.route.type === 'profile';
+  // 页面上实际的卡片数（加载器计数、上限预检都用它，和工具栏显示一致）
+  const pageCount = () => (ui.listEl ? A.cardsOf(ui.listEl).length : S.videos.size);
   const capFor = () => (isProfile() ? Math.min(600, (S.settings.loadCap || 100) * 3) : (S.settings.loadCap || 100));
   const listLoader = L.create({
     // 以页面上实际的卡片数为准（回到搜过的关键词时，缓存里的旧数据不算"已加载"）
-    count: () => (ui.listEl ? A.cardsOf(ui.listEl).length : S.videos.size),
+    count: pageCount,
     cap: capFor,
     blocked: () => A.blockingReason(),
     hasMore: () => { const m = DSP.meta[isProfile() ? 'profile' : 'search']; return m ? m.hasMore : undefined; },
@@ -151,11 +162,32 @@
     ui.listEl = null;
   }
 
+  // 工具栏宽度用 ResizeObserver 缓存（在写入 order 之后再读尺寸会强制整列表布局）
+  let ro = null;
+  function dockWidth() {
+    if (!ui.dock) return 0;
+    if (ui.roEl !== ui.dock.el) {
+      if (ro) ro.disconnect();
+      ro = new ResizeObserver((es) => { const w = Math.round(es[0].contentRect.width); if (w !== ui.dockW) { ui.dockW = w; schedule(); } });
+      ro.observe(ui.dock.el);
+      ui.roEl = ui.dock.el;
+      ui.dockW = ui.dock.el.getBoundingClientRect().width;
+    }
+    return ui.dockW || 1200;
+  }
+
   function observe(el) {
     if (ui.observed === el) return;
     if (ui.observer) ui.observer.disconnect();
-    ui.observer = new MutationObserver(() => schedule());
-    ui.observer.observe(el, { childList: true });
+    // 观察整棵列表子树，但只在两种情况下重画：卡片增减（列表的直接子节点变化），
+    // 或 React 重渲染卡片内部时把插件的角标冲掉了。卡片里的预览视频、计数跳动等其他变化忽略
+    ui.observer = new MutationObserver((records) => {
+      for (const m of records) {
+        if (m.target === el) return schedule();
+        for (const n of m.removedNodes) if (n.nodeType === 1 && (n.classList.contains('dsp-ann') || (n.querySelector && n.querySelector('.dsp-ann')))) return schedule();
+      }
+    });
+    ui.observer.observe(el, { childList: true, subtree: true });
     ui.observed = el;
   }
 
@@ -164,7 +196,8 @@
     ui.listEl = located ? located.el : null;
     ui.strategy = located ? located.strategy : '';
     const cards = located ? A.cardsOf(located.el) : [];
-    const blocked = A.blockingReason();
+    if (ui.blocked === undefined) ui.blocked = A.blockingReason();
+    const blocked = ui.blocked;
     const health = P.health({ type, count: S.videos.size, located: !!(located && cards.length), sinceRouteMs: Date.now() - ui.routeAt, blocked: listLoader.running ? null : blocked });
     // 以页面上实际显示的卡片为准（原地重排只能排页面上有的卡片；会话里更早的数据只用于导出）
     const ids = cards.length ? cards.map((c) => c.id) : null;
@@ -184,7 +217,7 @@
 
     // 工具栏挂载：列表的前一个兄弟节点；找不到列表时不挂（交给启动器显示状态）
     let docked = false;
-    if (located) {
+    if (located && hydrated()) {
       ui.dock = host('dsp-dock', located.el.parentElement, located.el);
       if (!ui.bar || !ui.bar.bar.isConnected) {
         ui.bar = T.buildBar(barApi);
@@ -202,8 +235,13 @@
       if (ui.dock.el.dataset.theme !== ui.theme) ui.dock.el.dataset.theme = ui.theme;
       docked = true;
       observe(located.el);
-    } else if (ui.dock) {
+    } else if (ui.dock && !located) {
       ui.dock.el.remove(); ui.dock = null; ui.bar = null;
+    }
+    if (!docked) {
+      if (IP.S.applied && !located) IP.restore();
+      ui.lastHealth = health;
+      return { health, docked: false, count: S.videos.size };
     }
 
     // 原地重排 / 还原
@@ -255,7 +293,7 @@
       const filterCount = Math.max(0, M.activeFilterCount(S.view.filter) - (lens && lens.filter ? M.activeFilterCount(lens.filter) : 0));
       const vm = {
         type, health, blocked, count: ids ? base.length : S.videos.size,
-        width: ui.dock.el.getBoundingClientRect().width,
+        width: dockWidth(),
         sorted, filterCount,
         loading: listLoader.running, cap: capFor(),
         candidates: S.candidates.size,
@@ -280,7 +318,8 @@
   // ---------------- 启动器（找不到挂载点 / 暂停 / 插件已更新） ----------------
   function renderLauncher(state) {
     // state：null（不需要）| 'recognizing' | 'fail' | 'blocked' | 'paused' | 'stale'
-    const need = state && (state === 'paused' || state === 'stale' || ((S.route.type === 'search' || S.route.type === 'profile') && state !== 'ok' && state !== 'partial'));
+    // "识别中"不弹启动器（每次进页面都会闪一下）；只在读不到、被拦、暂停、插件已更新时出现
+    const need = state && (state === 'paused' || state === 'stale' || ((S.route.type === 'search' || S.route.type === 'profile') && (state === 'fail' || state === 'blocked')));
     if (!need) { if (ui.launcher) { ui.launcher.remove(); ui.launcher = null; } return; }
     const text = {
       recognizing: ['正在读取结果…', ''],
@@ -310,9 +349,14 @@
     if (!list) {
       if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
       if (CE.state.applied) CE.restore();
+      if (commentLoader.running) commentLoader.stop('route'); // 评论区收起或换了面板：停，绝不替用户滚页面
       return;
     }
+    if (!hydrated()) return;
     ui.cbar = host('dsp-cbar', list.parentElement, list);
+    // 评论在独立的滚动面板里：吸在面板顶部；评论在页面主滚动里：吸在抖音顶栏下面
+    const ctop = A.isDocScroller(A.scrollerOf(list)) ? (ui.headerTop || 0) + 'px' : '0px';
+    if (ui.cbar.el.style.top !== ctop) ui.cbar.el.style.top = ctop;
     if (!ui.theme) ui.theme = A.pageTheme();
     if (ui.cbar.el.dataset.theme !== ui.theme) ui.cbar.el.dataset.theme = ui.theme;
     if (!ui.cb || !ui.cb.box.isConnected) {
@@ -399,8 +443,8 @@
     toggleLoad: () => {
       if (listLoader.running) { listLoader.stop('user'); return; }
       const blocked = A.blockingReason();
-      if (blocked) return announce(L.REASONS[blocked === 'captcha' ? 'captcha' : 'login'](S.videos.size), 'warn');
-      if (S.videos.size >= capFor()) return announce('已达到加载上限 ' + capFor() + ' 条，可以在插件弹窗里调高', 'warn');
+      if (blocked) return announce(L.REASONS[blocked === 'captcha' ? 'captcha' : 'login'](pageCount()), 'warn');
+      if (pageCount() >= capFor()) return announce('已达到加载上限 ' + capFor() + ' 条，可以在插件弹窗里调高', 'warn');
       listLoader.start();
     },
     openSort: (anchor) => openPanel('sort', anchor),

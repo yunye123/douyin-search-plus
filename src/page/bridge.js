@@ -329,12 +329,21 @@
 
   // ---- fiber 收割 ----
   // 只扫"结果列表"里的卡片，避免把侧栏推荐、相关视频混进当前会话
-  const LIST_SELECTORS = [
-    '#search-result-container',
-    '[data-e2e="user-post-list"]',
-    '[data-e2e="scroll-list"]',
-    '[id^="waterfall_item_"]',
-  ];
+  // 按页面类型只扫"结果列表"：搜索页只收搜索结果，主页只收作品列表。
+  // 通用的 scroll-list 组件也出现在视频弹层的"TA 的作品"、侧栏推荐里，只在找不到专属容器时兜底
+  function listRoots() {
+    const p = location.pathname;
+    const pick = (sels) => { const out = []; for (const s of sels) document.querySelectorAll(s).forEach((el) => out.push(el)); return out; };
+    let roots = [];
+    if (p.indexOf('/search/') === 0) roots = pick(['#search-result-container', '[id^="waterfall_item_"]']);
+    else if (p.indexOf('/user/') === 0) roots = pick(['[data-e2e="user-post-list"]']);
+    else return [];
+    if (!roots.length) roots = pick(['main [data-e2e="scroll-list"], #root [data-e2e="scroll-list"]']).filter((el) => !el.closest('[role="dialog"], [class*="modal" i]'));
+    return roots;
+  }
+  // 第一次读到 React fiber 时在 <html> 上做个记号：说明页面已经注水完成，内容脚本这时再往页面里插工具栏，
+  // 不会打乱 React 注水（服务端直出的页面，注水前多出节点会触发 hydration 报错和整页重渲染）
+  function markHydrated() { if (root.dataset.dspHydrated !== '1') root.dataset.dspHydrated = '1'; }
   let harvested = new WeakMap(); // 卡片元素 -> 已收割的视频 id（React 换了节点会自然重收）
   const ID_RE = /\/(?:video|note)\/(\d{8,25})/;
 
@@ -349,8 +358,7 @@
   }
 
   function harvestCards() {
-    const roots = new Set();
-    for (const sel of LIST_SELECTORS) document.querySelectorAll(sel).forEach((el) => roots.add(el));
+    const roots = new Set(listRoots());
     if (!roots.size) return;
     const items = [];
     const seen = new Set();
@@ -364,7 +372,7 @@
         if (harvested.get(el) === m[1]) continue;
         // fiber 可能挂在 li、卡片 div 或 a 上，逐个试
         const rec = fiberRecord(el, m[1]) || fiberRecord(a, m[1]) || (a.parentElement && fiberRecord(a.parentElement, m[1]));
-        if (rec) { harvested.set(el, m[1]); items.push(rec); }
+        if (rec) { harvested.set(el, m[1]); items.push(rec); markHydrated(); }
       }
     }
     if (!items.length) return;
@@ -387,12 +395,16 @@
     const rows = document.querySelectorAll('[data-e2e="comment-item"]');
     if (!rows.length) return;
     const items = [];
+    const now = Date.now();
     for (const row of rows) {
+      // 已盖章的行跳过；读不到 fiber 的行按 2 秒、10 秒退避重试两次，之后不再试（避免每次 DOM 变化都对几百行做广度搜索）
+      const prev = stampedComments.get(row);
+      if (prev && prev.ok && now - prev.at < 15000) continue; // 盖过章的行 15 秒内不重算（点赞数变了会在之后更新）
+      if (prev && (prev.tries >= 3 || now < prev.next)) continue;
       const c = fiberComment(row);
-      if (!c) continue;
-      const sig = c.cid + ':' + c.digg + ':' + c.replies;
-      if (stampedComments.get(row) === sig) continue;
-      stampedComments.set(row, sig);
+      if (!c) { const tries = prev ? prev.tries + 1 : 1; stampedComments.set(row, { ok: false, tries, next: now + (tries === 1 ? 2000 : 10000) }); continue; }
+      stampedComments.set(row, { ok: true, at: now });
+      markHydrated();
       row.setAttribute('data-dsp-cid', c.cid);
       row.setAttribute('data-dsp-digg', String(c.digg));
       row.setAttribute('data-dsp-replies', String(c.replies));
