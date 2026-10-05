@@ -263,7 +263,9 @@
     const item = (ic, label, run, extra) => h('button', { class: 'mi', type: 'button', onclick: () => { closePop(true); run(); } }, icon(ic, 16), h('span', null, label), extra || null);
     const panel = h('div', { class: 'pop-more' });
     DSP.kit.append(panel, [
-      vm.sorted && vm.passCount ? item('star', '把前 ' + Math.min(vm.passCount, 10) + ' 条加入候选', () => api.addTop(Math.min(vm.passCount, 10))) : null,
+      // 主页没读全时，名次只按已读的算：第二行小字写明（入库包里也会写）
+      vm.sorted && vm.passCount ? item('star', h('span', { class: 'mi-2' }, '把前 ' + Math.min(vm.passCount, 10) + ' 条加入候选',
+        vm.works > vm.count ? h('small', null, '名次按已读 ' + vm.count + ' / ' + vm.works + ' 条算') : null), () => api.addTop(Math.min(vm.passCount, 10))) : null,
       item('copy', '复制当前结果（表格）', () => api.exportView('tsv'), h('span', { class: 'mi-k' }, vm.passCount + ' 条')),
       item('download', '下载当前结果 CSV', () => api.exportView('csv')),
       h('div', { class: 'mi-sep' }),
@@ -400,11 +402,14 @@
 .in:focus { border-color: var(--cyan); }
 .in-hint { color: var(--t3); font-size: 12px; }
 .in-hint.bad { color: var(--tier-low-text); }
-.mi { display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; padding: 0 10px; border-radius: 8px; text-align: left; color: var(--t1); }
+.mi { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border-radius: 8px; text-align: left; color: var(--t1); }
 .mi:hover, .mi:focus-visible { background: var(--line); }
 .mi svg { color: var(--t2); }
 .mi span:first-of-type { flex: 1; }
 .mi-k { color: var(--t3); font-size: 12px; }
+.mi-2 { display: flex; flex-direction: column; }
+.mi:has(.mi-2 small) { padding-top: 6px; padding-bottom: 6px; }
+.mi-2 small { color: var(--t3); font-size: 11px; line-height: 16px; font-weight: 400; }
 .mi-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 .mi-foot { padding: 8px 10px 4px; color: var(--t3); font-size: 11px; line-height: 16px; }
 `;

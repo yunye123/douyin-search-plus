@@ -73,10 +73,18 @@
     if (!v.source) return '';
     const x = v.extra || {};
     let s = v.srcType === 'profile' && v.source.charAt(0) === '@' ? v.source + ' 主页' : v.source;
-    if (x.rank) s += ' · ' + (x.lensLabel ? x.lensLabel + ' ' : '') + '第 ' + x.rank + ' 名';
+    const lens = x.lensLabel ? x.lensLabel + ' ' : '';
+    if (x.rank) {
+      s += ' · ' + lens + '第 ' + x.rank + ' 名';
+      // 名次只在当时读到的范围里成立：主页没读全时写明，Agent 才知道名次可能会变
+      const o = x.rankOf;
+      if (o && o.total > o.count) s += '（按已读 ' + o.count + ' / ' + o.total + ' 条，没读全）';
+      else if (o && o.count) s += '（共 ' + o.count + ' 条里）';
+    } else if (x.rankStale) s += ' · ' + lens + '已不在前 ' + x.rankStale + ' 名';
     return s;
   }
   const accountText = (a) => (a ? [a.fans ? '粉丝 ' + U.fmtNum(a.fans) : '', a.likes ? '获赞 ' + U.fmtNum(a.likes) : '', a.works ? '作品 ' + a.works : ''].filter(Boolean).join(' · ') : '');
+  const isUpdate = (v) => !!(v.copiedAt && v.updatedAt && v.updateNote);
   // 评论区诊断：只列出现过的门槛词
   function commentsLine(cm) {
     if (!cm || !cm.stats) return '';
@@ -95,6 +103,7 @@
     list.forEach((v, i) => {
       lines.push('');
       lines.push('## ' + (i + 1) + '. ' + ((v.desc || '').replace(/\s+/g, ' ').slice(0, 40) || '（无标题）'));
+      if (isUpdate(v)) lines.push('- 更新：这条之前已经交给过你，这次' + v.updateNote + '。请更新原条目，不要新建');
       lines.push('- 原链接：' + videoUrl(v));
       // 原标题照抄 desc；多行时缩进续行，保持在同一个列表项里
       lines.push('- 原标题：' + (v.desc || '').replace(/\n/g, '\n  '));
@@ -134,6 +143,7 @@
         作者: v.author,
         作者主页: authorUrl(v),
         发现于: discovered(v),
+        更新: isUpdate(v) ? v.updateNote : '',
         账号快照: x.account ? accountText(x.account) : '',
         占账号总获赞: x.share == null ? null : ratio4(x.share),
         发布时间: U.fmtDate(v.createTime),

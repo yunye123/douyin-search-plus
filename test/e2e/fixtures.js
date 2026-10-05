@@ -2,7 +2,7 @@
 // state(page) 通过测试通道读取内容脚本（隔离世界）里的状态快照。
 'use strict';
 const base = require('@playwright/test');
-const { launch, urls } = require('../sim/launch');
+const { launch, urls, extensionId } = require('../sim/launch');
 
 const test = base.test.extend({
   ext: async ({}, use) => {
@@ -51,4 +51,4 @@ async function ready(page) {
   await page.waitForFunction(() => window.__SIM__ && window.__SIM__.ready);
 }
 
-module.exports = { test, expect: base.expect, state, until, ready, urls };
+module.exports = { test, expect: base.expect, state, until, ready, urls, extensionId };

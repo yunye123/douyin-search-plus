@@ -1,6 +1,6 @@
 // 界面端到端：用户的完整流程在仿真站上跑通（Playwright 的 CSS 选择器会自动穿透插件的 Shadow DOM）。
 'use strict';
-const { test, expect, state, until, ready, urls } = require('./fixtures');
+const { test, expect, state, until, ready, urls, extensionId } = require('./fixtures');
 
 const dsp = (page, name) => page.locator(`[data-dsp="${name}"]`);
 async function dismissCoach(page) {
@@ -420,4 +420,180 @@ test('候选篮：复制过的标"已复制"，下次默认只复制新加入的
   await expect(dsp(page, 'copy-md')).toContainText('1 条新的');
   await dsp(page, 'copy-md').click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('# 选题候选 · 1 条');
+});
+
+test('扩展弹窗：在抖音页上点开，认得出这一页并显示读取状态（真实扩展地址，不用替身）', async ({ page, ext }) => {
+  await page.goto(urls.search('弹窗状态'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  const id = await extensionId(ext.context);
+  const pp = await ext.context.newPage();
+  await pp.goto(`chrome-extension://${id}/src/popup/popup.html`);
+  // 找到抖音那一页（页面里的插件会回答状态），并确认扩展读得到它的地址
+  const tabs = await pp.evaluate(async () => {
+    const out = [];
+    for (const t of await chrome.tabs.query({})) {
+      let r = null;
+      try { r = await chrome.tabs.sendMessage(t.id, { type: 'dsp:status' }); } catch (e) { /* 不是抖音页 */ }
+      out.push({ id: t.id, url: t.url || '', answered: !!r });
+    }
+    return out;
+  });
+  const dy = tabs.find((t) => t.answered);
+  expect(dy.url).toContain('https://www.douyin.com/');
+  // 模拟"在抖音页上点开弹窗"：只把"当前标签页"指向抖音那一页，其余都用真的
+  await pp.addInitScript((tabId) => {
+    const orig = chrome.tabs.query.bind(chrome.tabs);
+    chrome.tabs.query = async (q) => (q && q.active ? (await orig({})).filter((t) => t.id === tabId) : orig(q));
+  }, dy.id);
+  await pp.reload();
+  await expect(pp.locator('#status-title')).toContainText('搜索结果页');
+  await expect(pp.locator('#status-sub')).toContainText('已读取 20 条');
+});
+
+test('页面由 body 滚动时（真实抖音的方式）：选看法后第 1 名到工具栏下，↑ 跳转不被工具栏挡住，继续加载照常', async ({ page }) => {
+  await page.goto(urls.search('body滚动', 'bodyscroll=1'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  await page.evaluate(() => { document.body.scrollTop = 900; });
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="ratio"]').click();
+  await until(page, (x) => x.view.active);
+  await page.keyboard.press('Escape');
+  // 第 1 名（列表顶部）落在吸顶工具栏下方 0~16px
+  const gap = () => page.evaluate(() => Math.round(document.querySelector('#search-result-container ul').getBoundingClientRect().top - document.getElementById('dsp-dock').getBoundingClientRect().bottom));
+  await expect.poll(async () => { const g = await gap(); return g >= 0 && g <= 16; }, { timeout: 3000 }).toBe(true);
+  // 往下滚两行，从第 9 名按 ↑ 跳回第 1 名：聚焦的标签不在工具栏底下
+  await page.evaluate(() => { document.body.scrollTop += 700; });
+  await page.evaluate(() => {
+    const li = [...document.querySelectorAll('#search-result-container ul > li')].find((x) => x.style.order === '9');
+    li.querySelector('.dsp-ann').shadowRoot.querySelector('.chip').focus();
+  });
+  for (let i = 0; i < 8; i++) { await page.keyboard.press('ArrowUp'); await page.waitForTimeout(80); }
+  const pos = await page.evaluate(() => {
+    const host = document.activeElement;
+    return { order: host.closest('li').style.order, top: host.getBoundingClientRect().top, dock: document.getElementById('dsp-dock').getBoundingClientRect().bottom };
+  });
+  expect(pos.order).toBe('1');
+  expect(pos.top).toBeGreaterThanOrEqual(pos.dock);
+  // 继续加载：滚 body 也能翻页
+  await dsp(page, 'load').click();
+  await until(page, (x) => x.count >= 40, { timeout: 25000, label: 'body 滚动时继续加载' });
+});
+
+test('评论区：按回复排好再「加载全部」，读完回到第 1 条；读完后再换排序也回到第 1 条', async ({ page }) => {
+  await page.goto(urls.video('7499999999999990021'));
+  await ready(page);
+  await expect(page.locator('.cb-vcr')).toBeVisible();
+  // 视觉上排第 1 的评论（order 最小）是否在评论工具条下方、屏幕之内
+  const first = () => page.evaluate(() => {
+    const rows = [...document.querySelector('[data-e2e="comment-list"]').children].filter((r) => r.querySelector('[data-e2e="comment-item"]'));
+    const f = rows.reduce((a, r) => ((+r.style.order || 0) < (+a.style.order || 0) ? r : a));
+    const t = f.getBoundingClientRect().top;
+    const bar = document.getElementById('dsp-cbar').getBoundingClientRect().bottom;
+    return { n: rows.length, ok: t >= bar - 1 && t < innerHeight };
+  });
+  await page.locator('[data-cmode="replies"]').click();
+  await dsp(page, 'c-load').click();
+  await expect.poll(async () => { const x = await first(); return x.n >= 160 && x.ok; }, { timeout: 45000, message: '读完后回到第 1 条' }).toBe(true);
+  // 手动滚到最底下，再换成按赞
+  await page.evaluate(() => { document.querySelector('.sim-vside').scrollTop = 1e7; });
+  await page.locator('[data-cmode="digg"]').click();
+  await expect.poll(async () => (await first()).ok, { timeout: 3000, message: '换排序后回到第 1 条' }).toBe(true);
+});
+
+test('弹层里从视频 A 换到 B（B 的评论还没读到）：评论计数和加入候选都不会用 A 的评论', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.search('弹层切换'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  const [A, B] = await page.evaluate(() => [...document.querySelectorAll('#search-result-container li a')].slice(0, 2).map((a) => /(\d{15,})/.exec(a.getAttribute('href'))[1]));
+  await page.evaluate((A) => {
+    history.pushState({}, '', location.pathname + location.search + '&modal_id=' + A);
+    const m = document.createElement('div');
+    m.id = 'sim-modal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:80;background:#111;display:flex;padding:40px';
+    m.innerHTML = '<div style="flex:1"></div><div class="side" style="width:420px;height:calc(100vh - 80px);overflow:auto"><div data-e2e="comment-list"></div></div>';
+    document.body.appendChild(m);
+    const list = m.querySelector('[data-e2e="comment-list"]');
+    xhrJson('/aweme/v1/web/comment/list/?aweme_id=' + A + '&cursor=0&count=20').then((j) => {
+      for (const c of j.comments) { const w = document.createElement('div'); w.innerHTML = '<div data-e2e="comment-item"><div>' + escH(c.text) + '</div></div>'; list.appendChild(w); }
+    });
+  }, A);
+  await until(page, (x) => x.comments.awemeId === A && x.comments.count >= 20);
+  // 换到 B：地址变了，评论区换成 B 的 6 条（不经接口，相当于接口还在路上）
+  await page.evaluate((B) => {
+    history.replaceState({}, '', location.pathname + location.search.replace(/modal_id=\d+/, 'modal_id=' + B));
+    const list = document.querySelector('#sim-modal [data-e2e="comment-list"]');
+    list.textContent = '';
+    for (let i = 0; i < 6; i++) { const w = document.createElement('div'); w.innerHTML = '<div data-e2e="comment-item"><div>B 的评论 ' + i + '：讲得很清楚，已经学会了</div></div>'; list.appendChild(w); }
+  }, B);
+  const s = await until(page, (x) => x.route.modalId === B && x.comments.awemeId === B);
+  expect(s.comments.count).toBe(0);
+  // 门槛词格子按 B 页面上的 6 条算（都不含门槛词）
+  await expect.poll(() => page.locator('.cb-tile .cb-n').allTextContents()).toEqual(['0', '0', '0', '0', '0']);
+  await dsp(page, 'c-cand').click();
+  await until(page, (x) => x.candidates.includes(B));
+  await expect(page.locator('.dsp-toast')).toContainText('评论还没读到');
+  // 入库包里 B 这条不带任何评论结论
+  await page.evaluate(() => { document.getElementById('sim-modal').remove(); history.replaceState({}, '', location.pathname + location.search.replace(/&modal_id=\d+/, '')); });
+  await until(page, (x) => !x.route.modalId);
+  await dsp(page, 'basket').click();
+  await dsp(page, 'copy-md').click();
+  const md = await page.evaluate(() => navigator.clipboard.readText());
+  expect(md).not.toContain('原评论');
+  expect(md).not.toContain('- 评论区：');
+});
+
+test('候选篮：复制表格复制全部、不改"已复制"标记；都复制过时提前说明会重复', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.search('复制规则'));
+  await ready(page);
+  await dismissCoach(page);
+  const add = async (n) => { const c = page.locator('#search-result-container li').nth(n); await c.hover(); await c.locator('.dsp-ann .cand').click(); };
+  const clip = () => page.evaluate(() => navigator.clipboard.readText());
+  await add(0); await add(1);
+  await until(page, (x) => x.candidates.length === 2);
+  await dsp(page, 'basket').click();
+  await dsp(page, 'copy-md').click();
+  expect(await clip()).toContain('# 选题候选 · 2 条');
+  await page.keyboard.press('Escape');
+  await add(2); await add(3); await add(4);
+  await until(page, (x) => x.candidates.length === 5);
+  await dsp(page, 'basket').click();
+  // 表格：和预览一样是全部 5 条（表头 + 5 行），而且不把新加的 3 条标成已复制
+  await dsp(page, 'copy-tsv').click();
+  expect((await clip()).split('\n').length).toBe(6);
+  await expect(dsp(page, 'copy-md')).toContainText('3 条新的');
+  await dsp(page, 'copy-md').click();
+  expect(await clip()).toContain('# 选题候选 · 3 条');
+  await expect(dsp(page, 'copy-md')).toContainText('都复制过，再复制会重复');
+});
+
+test('账号 Top10：没读全时加入前 10，读完再加一次——名次更新，不会出现两个第 1 名', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.profile());
+  await ready(page);
+  await dismissCoach(page);
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="top10"]').click();
+  await until(page, (x) => x.view.active);
+  await page.keyboard.press('Escape');
+  await dsp(page, 'more').click();
+  await page.getByRole('button', { name: /把前 10 条加入候选.*名次按已读 18 \/ 60 条算/ }).click();
+  await until(page, (x) => x.candidates.length === 10);
+  await dsp(page, 'load').click();
+  await until(page, (x) => x.count >= 60, { timeout: 40000, label: '读完主页' });
+  await dsp(page, 'more').click();
+  await page.getByRole('button', { name: /^把前 10 条加入候选$/ }).click();
+  await dsp(page, 'basket').click();
+  await dsp(page, 'copy-md').click();
+  const md = await page.evaluate(() => navigator.clipboard.readText());
+  const ranks = [...md.matchAll(/账号 Top10 第 (\d+) 名/g)].map((m) => +m[1]).sort((a, b) => a - b);
+  expect(ranks).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  expect(md).toContain('（共 60 条里）');
+  const s = await state(page);
+  expect((md.match(/已不在前 10 名/g) || []).length).toBe(s.candidates.length - 10);
 });

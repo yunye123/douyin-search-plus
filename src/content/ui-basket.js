@@ -20,7 +20,7 @@
     }
     if (c.kind === 'note') thumb.appendChild(h('span', { class: 'bk-dur' }, '图文'));
     else if (c.durationMs) thumb.appendChild(h('span', { class: 'bk-dur' }, U.fmtDuration(c.durationMs)));
-    const row = h('li', { class: 'bk-item' + (c.copiedAt ? ' copied' : '') },
+    const row = h('li', { class: 'bk-item' + (c.copiedAt && !c.fresh ? ' copied' : '') },
       h('a', { class: 'bk-link', href: url, target: '_blank', rel: 'noopener noreferrer', title: '在新标签页打开' },
         thumb,
         h('span', { class: 'bk-body' },
@@ -30,7 +30,7 @@
             h('b', { class: 'c-' + tier }, tier === 'na' ? '样本少' : U.fmtPct(c.cr)),
             tier !== 'na' ? h('span', { class: 'tier tier-' + tier }, M.CR_TIERS[tier].label) : null,
             h('span', { class: 'bk-meta' }, (c.dn ? M.fmtDn(c.dn) + ' · ' : '') + '赞 ' + U.fmtNum(c.digg)),
-            c.copiedAt ? h('span', { class: 'bk-copied' }, '已复制') : null,
+            c.copiedAt ? h('span', { class: 'bk-copied' }, c.fresh ? '有更新' : '已复制') : null,
             c.extra && c.extra.comments ? h('span', { class: 'bk-copied' }, '含评论结论') : null))),
       h('span', { class: 'bk-side' },
         h('button', { class: 'bk-x', type: 'button', 'aria-label': '移出候选篮', onclick: () => api.removeCandidate(c.id) }, icon('close', 14)),
@@ -77,12 +77,14 @@
     box.append(tabs, pre);
     renderPre();
 
-    // 默认只复制还没复制过的（上次已交给 Agent 的不重复给）；都复制过时复制全部
-    const fresh = list.filter((c) => !c.copiedAt).length;
+    // 默认只复制还没交给 Agent 的（新加的、有更新的）；都复制过时复制全部，并提前说明会重复
+    const fresh = list.filter((c) => c.fresh).length;
     const n = fresh || list.length;
+    const sub = fresh && fresh < list.length ? '另有 ' + (list.length - fresh) + ' 条复制过，不重复给'
+      : !fresh ? '这 ' + n + ' 条都复制过，再复制会重复' : '粘贴给 Agent，说「添加选题」';
     const primary = h('button', { class: 'bk-primary', type: 'button', 'data-autofocus': '', 'data-dsp': 'copy-md', onclick: () => api.copy('md', primary) },
       icon('copy', 18), h('span', { class: 'bk-pt' }, h('b', null, '复制入库包 · ' + n + ' 条' + (fresh && fresh < list.length ? '新的' : '')),
-        h('span', null, fresh && fresh < list.length ? '另有 ' + (list.length - fresh) + ' 条复制过，不重复给' : '粘贴给 Agent，说「添加选题」')));
+        h('span', null, sub)));
     const sec = h('div', { class: 'bk-sec' },
       h('button', { class: 'bk-btn', type: 'button', 'data-dsp': 'copy-tsv', onclick: (e) => api.copy('tsv', e.currentTarget) }, icon('table', 16), '复制为表格'),
       h('button', { class: 'bk-btn', type: 'button', 'data-dsp': 'csv', onclick: () => api.downloadCsv() }, icon('download', 16), '下载 CSV'),

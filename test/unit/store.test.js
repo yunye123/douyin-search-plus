@@ -119,3 +119,59 @@ test('切官方筛选后，旧筛选晚到的翻页响应被丢弃、不把会�
   assert.equal(St.intakeVideos({ source: 'api', endpoint: 'search', kw: 'late', filter: '', offset: 0 }, [rec(3)]), 1);
   assert.notEqual(St.S.session, s);
 });
+
+test('候选：复制过的又补上评论结论或名次变了，记为"有更新"，下一次入库包会带上', () => {
+  St.setRoute(St.routeOf(loc('/search/cand-upd')));
+  St.intakeVideos({ kw: 'cand-upd' }, [rec(71), rec(72)]);
+  St.clearCandidates();
+  St.addCandidate('71', { rank: 1, lensLabel: '真需求' });
+  St.addCandidate('72');
+  St.markCopied(['71', '72']);
+  assert.deepEqual(St.candidateList().map((c) => c.fresh), [false, false]);
+  St.addCandidate('71', { comments: { stats: { ask: 3 }, loaded: 20, total: 20, picks: ['求链接'] } });
+  St.addCandidate('72', { rank: 5, lensLabel: '真需求' });
+  const [a, b] = St.candidateList();
+  assert.equal(a.fresh, true);
+  assert.equal(a.updateNote, '补充了评论结论');
+  assert.equal(b.updateNote, '名次变为真需求 第 5 名');
+  // 再复制一次后不再算新的
+  St.markCopied(['71', '72']);
+  assert.deepEqual(St.candidateList().map((c) => c.fresh), [false, false]);
+});
+
+test('换了一条视频：上一条的评论数据立即清空，不等新评论到达', () => {
+  St.setRoute(St.routeOf(loc('/search/x', '?modal_id=7400000000000000001')));
+  St.intakeComments({ awemeId: '7400000000000000001', total: 2, items: [{ cid: 'c1', text: '求链接', digg: 3 }, { cid: 'c2', text: '多少钱', digg: 1 }] });
+  assert.equal(St.S.comments.map.size, 2);
+  St.setRoute(St.routeOf(loc('/search/x', '?modal_id=7400000000000000002')));
+  assert.equal(St.S.comments.awemeId, '7400000000000000002');
+  assert.equal(St.S.comments.map.size, 0);
+  // 关掉弹层（没有视频）不清
+  St.intakeComments({ awemeId: '7400000000000000002', total: 1, items: [{ cid: 'c3', text: 'x', digg: 0 }] });
+  St.setRoute(St.routeOf(loc('/search/x')));
+  assert.equal(St.S.comments.map.size, 1);
+});
+
+test('候选：复制后的多次更新合在一起写', () => {
+  St.setRoute(St.routeOf(loc('/search/cand-upd2')));
+  St.intakeVideos({ kw: 'cand-upd2' }, [rec(81)]);
+  St.clearCandidates();
+  St.addCandidate('81', { rank: 1, lensLabel: '真需求' });
+  St.markCopied(['81']);
+  St.addCandidate('81', { comments: { stats: {}, loaded: 1, total: 1, picks: [] } });
+  St.addCandidate('81', { rank: 4, lensLabel: '真需求' });
+  St.addCandidate('81', { rank: 2, lensLabel: '真需求' });
+  assert.equal(St.candidateList()[0].updateNote, '补充了评论结论，名次变为真需求 第 2 名');
+});
+
+test('候选：先掉出前列、又回到前列，只写最新的名次', () => {
+  St.setRoute(St.routeOf(loc('/search/cand-upd3')));
+  St.intakeVideos({ kw: 'cand-upd3' }, [rec(91)]);
+  St.clearCandidates();
+  St.addCandidate('91', { rank: 1, lensLabel: '账号 Top10' });
+  St.markCopied(['91']);
+  St.addCandidate('91', { rank: 0, rankStale: 10, rankOf: null });
+  assert.equal(St.candidateList()[0].updateNote, '账号 Top10 已不在前 10 名');
+  St.addCandidate('91', { rank: 3, rankStale: 0, lensLabel: '账号 Top10' });
+  assert.equal(St.candidateList()[0].updateNote, '名次变为账号 Top10 第 3 名');
+});

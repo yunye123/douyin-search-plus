@@ -25,15 +25,16 @@ async function activeTab() {
   return tab;
 }
 
+// 先直接问页面里的插件：有回应就是抖音页（不依赖能否读到标签页地址）；
+// 没回应再看地址：是抖音 = 插件刚安装/更新、页面还没刷新；其他网址或读不到地址 = 不在抖音
 async function pageStatus(tab) {
-  if (!tab || !/^https:\/\/www\.douyin\.com\//.test(tab.url || '')) return { onDouyin: false };
+  if (!tab) return { onDouyin: false };
   try {
     const r = await chrome.tabs.sendMessage(tab.id, { type: 'dsp:status' });
-    return Object.assign({ onDouyin: true }, r);
-  } catch (e) {
-    // 内容脚本没注入（例如插件刚安装/更新，页面还没刷新）
-    return { onDouyin: true, stale: true };
-  }
+    if (r) return Object.assign({ onDouyin: true }, r);
+  } catch (e) { /* 页面里没有插件 */ }
+  if (/^https:\/\/www\.douyin\.com\//.test(tab.url || '')) return { onDouyin: true, stale: true };
+  return { onDouyin: false };
 }
 
 function renderStatus(st, settings) {

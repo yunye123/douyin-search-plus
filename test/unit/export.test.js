@@ -122,3 +122,17 @@ test('入库包：作者主页、账号快照、发现于名次、占比、评�
   assert.equal(j.items[0].占账号总获赞, 0.225);
   assert.deepEqual(j.items[0].原评论, ['这个要多少钱？', '第三步\n卡住了']);
 });
+
+test('入库包：名次写明读了多少；掉出前列的写明；复制后又有更新的提醒 Agent 改原条目', () => {
+  const base = { id: '7400000000000000008', kind: 'video', desc: '名次', author: '星辰ai', createTime: NOW - 5 * 86400, capturedAt: NOW, durationMs: 60000, digg: 900, comment: 9, collect: 800, share: 10 };
+  const mk = (extra, more) => Object.assign(M.derive(base, NOW), { source: '@星辰ai', srcType: 'profile', extra }, more || {});
+  const md = (w) => E.toMarkdown([w], { now: NOW });
+  assert.ok(md(mk({ rank: 3, lensLabel: '账号 Top10', rankOf: { count: 18, total: 60 } })).includes('- 发现于：@星辰ai 主页 · 账号 Top10 第 3 名（按已读 18 / 60 条，没读全）'));
+  assert.ok(md(mk({ rank: 3, lensLabel: '账号 Top10', rankOf: { count: 60, total: 60 } })).includes('账号 Top10 第 3 名（共 60 条里）'));
+  assert.ok(md(mk({ rank: 0, rankStale: 10, lensLabel: '账号 Top10' })).includes('- 发现于：@星辰ai 主页 · 账号 Top10 已不在前 10 名'));
+  // 复制过、之后又补上了评论结论：开头注明是更新
+  const upd = md(mk({ rank: 1, lensLabel: '账号 Top10' }, { copiedAt: NOW - 100, updatedAt: NOW, updateNote: '补充了评论结论' }));
+  assert.ok(upd.includes('- 更新：这条之前已经交给过你，这次补充了评论结论。请更新原条目，不要新建'));
+  // 复制之后没再变（复制时已清掉更新标记）：不写"更新"
+  assert.ok(!md(mk({}, { copiedAt: NOW })).includes('- 更新：'));
+});

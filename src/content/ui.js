@@ -134,7 +134,12 @@
       schedule();
       if (st.running || !st.reason || st.reason === 'route') return;
       const tone = st.reason === 'login' || st.reason === 'captcha' || st.reason === 'stalled' ? 'warn' : '';
-      // 加载完停在页面最底下；排过序的话给一个"回到第 1 名"
+      // 加载器把页面拖到了最底下。排过序、而且是读完或到上限：自动回到第 1 名（底下是排名最靠后的）；
+      // 其他停止原因（被拦、手动停）不替用户跳走，给一个"看排名"
+      if (S.view.active && (st.reason === 'end' || st.reason === 'cap')) {
+        requestAnimationFrame(() => { update(); scrollToListTop(); });
+        return announce(st.message() + '，已回到第 1 名', tone);
+      }
       announce(st.message(), tone, S.view.active ? { label: '看排名', run: scrollToListTop } : null);
     },
   });
@@ -142,13 +147,35 @@
     count: () => A.commentRows().length,
     cap: () => 500,
     blocked: () => A.blockingReason(),
-    hasMore: () => (DSP.meta.comments ? DSP.meta.comments.hasMore : undefined),
+    hasMore: () => { const m = commentMeta(); return m ? m.hasMore : undefined; },
     // 评论区没了（例如关掉了视频弹层）就停，绝不退回去滚动整个页面
     // 只滚评论所在的那个容器；评论在弹层里时 scrollerOf 不会越过弹层，背后的页面不动
     scroll: () => { const list = A.commentList(); if (!list) return commentLoader.stop('route'); const sc = A.scrollerOf(list); if (sc) sc.scrollTop = sc.scrollHeight; },
-    onChange: (st) => { schedule(); if (!st.running && st.reason && st.reason !== 'route') announce(st.reason === 'end' || st.reason === 'cap' ? '评论读完了，共 ' + A.commentRows().length + ' 条' : st.message(), st.reason === 'login' || st.reason === 'captcha' ? 'warn' : ''); },
+    onChange: (st) => {
+      schedule();
+      if (st.running || !st.reason || st.reason === 'route') return;
+      const done = st.reason === 'end' || st.reason === 'cap';
+      const msg = done ? '评论读完了，共 ' + A.commentRows().length + ' 条' : st.message();
+      const tone = st.reason === 'login' || st.reason === 'captcha' ? 'warn' : '';
+      // 和搜索页一致：按赞 / 按回复排着时读完，自动回到第 1 条；没排序就给一个"回到第 1 条"
+      if (done && CE.state.mode) {
+        requestAnimationFrame(() => { update(); scrollToCommentTop(); });
+        return announce(msg + '，已回到第 1 条', tone);
+      }
+      announce(msg, tone, done ? { label: '回到第 1 条', run: scrollToCommentTop } : null);
+    },
     delay: [1200, 2600],
   });
+  // 当前这条视频的评论翻页信息（换视频后，上一条的不算）
+  function commentMeta() {
+    const m = DSP.meta.comments;
+    return m && (!m.awemeId || m.awemeId === S.comments.awemeId) ? m : null;
+  }
+  // 当前这条视频的评论数据（接口或 fiber 读到的）；读到的是别的视频的就当没有
+  function currentComments() {
+    const vid = S.route.modalId || S.route.awemeId || '';
+    return !vid || S.comments.awemeId === vid ? S.comments : { awemeId: vid, map: new Map(), total: 0 };
+  }
   function stopLoaders(reason) { listLoader.stop(reason); commentLoader.stop(reason); }
 
   // ---------------- 提示 ----------------
@@ -165,10 +192,20 @@
     if (!ui.listEl || !ui.listEl.isConnected) return;
     const delta = ui.listEl.getBoundingClientRect().top - (Math.max(dockBottom(), (ui.headerTop || 0) + 56) + 8);
     if (Math.abs(delta) < 4) return;
-    const sc = A.scrollerOf(ui.listEl);
-    const behavior = kit.reducedMotion() ? 'auto' : 'smooth';
-    if (sc && !A.isDocScroller(sc)) sc.scrollBy({ top: delta, behavior });
-    else window.scrollBy({ top: delta, behavior });
+    A.scrollByIn(ui.listEl, delta, kit.reducedMotion() ? 'auto' : 'smooth');
+  }
+  // 评论区：把视觉上的第 1 条滚到评论工具条下方（评论在面板里滚动时滚面板，在页面里滚动时滚页面）
+  function scrollToCommentTop() {
+    const list = A.commentList();
+    if (!list || !list.isConnected) return;
+    const rows = A.commentRows(list);
+    if (!rows.length) return;
+    let first = rows[0].el, top = first.getBoundingClientRect().top;
+    for (const r of rows) { const t = r.el.getBoundingClientRect().top; if (t < top) { top = t; first = r.el; } }
+    const bar = ui.cbar && ui.cbar.el.isConnected ? ui.cbar.el.getBoundingClientRect().bottom : (ui.headerTop || 0);
+    const delta = top - (bar + 8);
+    if (Math.abs(delta) < 4) return;
+    A.scrollByIn(list, delta, kit.reducedMotion() ? 'auto' : 'smooth');
   }
   // 名次跳转：按键时现查卡片和视觉顺序（不用闭包里的旧顺序），焦点不被吸顶工具栏挡住
   ui.nav = (id, dir) => {
@@ -181,7 +218,7 @@
     C.focusChip(next.el);
     const r = next.el.getBoundingClientRect();
     const db = dockBottom();
-    if (r.top < db + 8) window.scrollBy(0, r.top - db - 12);
+    if (r.top < db + 8) A.scrollByIn(next.el, r.top - db - 12);
   };
 
   // ---------------- 主更新 ----------------
@@ -438,9 +475,10 @@
       // 签名没变但评论区被还原过（暂停后恢复、列表重新挂载），也要重新应用
       if (sig !== ui.commentSig || !CE.state.applied || CE.state.list !== list) { ui.commentSig = sig; ui.commentHits = CE.apply().hits || 0; }
     }
-    const all = [...S.comments.map.values()];
+    const cc = currentComments();
+    const all = [...cc.map.values()];
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
-    const m = DSP.meta.comments;
+    const m = commentMeta();
     const vid = S.route.modalId || S.route.awemeId || '';
     const raw = store.findVideo(vid);
     const video = raw ? M.derive(raw, Date.now() / 1000) : null;
@@ -449,8 +487,8 @@
     CB.render(ui.cb, {
       video, isCand: !!cand, candHasComments: !!(cand && cand.extra && cand.extra.comments),
       mode: CE.state.mode, highlight: CE.state.highlight, hits: ui.commentHits || 0, cursor: ui.commentCursor,
-      loaded: Math.max(rows.length, S.comments.map.size), total: S.comments.total,
-      loading: commentLoader.running, done: !!(m && m.hasMore === false && !commentLoader.running && rows.length >= S.comments.map.size),
+      loaded: Math.max(rows.length, cc.map.size), total: cc.total,
+      loading: commentLoader.running, done: !!(m && m.hasMore === false && !commentLoader.running && rows.length >= cc.map.size),
       stats,
     }, commentApi);
   }
@@ -471,17 +509,28 @@
     // 从视频页加入候选：连同评论区门槛词计数和挑出的原评论（高亮中的命中，否则当前排序前 5 条）
     addVideo: () => {
       const vid = S.route.modalId || S.route.awemeId || '';
+      const had = S.candidates.has(vid);
+      const cc = currentComments();
+      // 这条视频的评论还没读到（刚换视频、接口还在路上）：只加视频，不附评论结论，绝不用上一条的评论
+      if (!cc.map.size) {
+        if (!store.addCandidate(vid)) return announce('没找到这条视频的数据：从搜索结果或博主主页点进来再试', 'warn');
+        announce((had ? '已在候选篮' : '已加入候选篮 · 共 ' + S.candidates.size + ' 条') + '。评论还没读到，读到后再点一次可补上评论结论');
+        return schedule();
+      }
       const k = CE.state.highlight;
       const all = CE.collected();
       const picks = (k ? all.filter((c) => E.barrierHits(c.text).includes(k)) : all).slice(0, 5).map((c) => c.text);
       const rows = A.commentRows().length;
-      const comments = { stats: ui.commentStats || {}, loaded: Math.max(rows, S.comments.map.size), total: S.comments.total, picks };
-      const had = S.candidates.has(vid);
+      const comments = { stats: ui.commentStats || {}, loaded: Math.max(rows, cc.map.size), total: cc.total, picks };
       if (!store.addCandidate(vid, { comments })) return announce('没找到这条视频的数据：从搜索结果或博主主页点进来再试', 'warn');
       announce(had ? '已更新这条候选的评论结论' : '已加入候选篮（含评论结论）· 共 ' + S.candidates.size + ' 条');
       schedule();
     },
-    setMode: (m) => { CE.setMode(m); ui.commentSig = ''; schedule(); },
+    // 换排序后回到第 1 条（加载中不滚，免得和加载器抢）
+    setMode: (m) => {
+      CE.setMode(m); ui.commentSig = ''; schedule();
+      if (!commentLoader.running) requestAnimationFrame(() => { update(); scrollToCommentTop(); });
+    },
     // 点一格：高亮命中的评论，并把第 1 条滚到视野中间闪一下（"1/N"名副其实）
     setHighlight: (k) => {
       CE.setHighlight(CE.state.highlight === k ? null : k);
@@ -575,11 +624,42 @@
     },
     toggleBadges: () => { store.saveSettings({ badges: !S.settings.badges }); },
     // 把排在前面的 N 条一次加入候选（带上名次和看法）
+    // 已在篮子里的更新名次；同一来源、同一看法、这次掉出前 N 的标成"已不在前 N 名"——同一账号只留一套名次
     addTop: (n) => {
-      const ids = (ui.vm ? ui.vm.view.sorted.map((x) => x.v.id) : []).slice(0, n).filter((id) => !S.candidates.has(id));
-      if (!ids.length) return announce('前 ' + n + ' 条都已经在候选篮里了');
-      for (const id of ids) store.addCandidate(id, extraFor(id));
-      announce('已把 ' + ids.length + ' 条加入候选篮 · 共 ' + S.candidates.size + ' 条', '', { label: '撤销', run: () => store.removeCandidates(ids) });
+      const top = (ui.vm ? ui.vm.view.sorted.map((x) => x.v.id) : []).slice(0, n);
+      if (!top.length) return;
+      const lens = P.matchLens(S.view);
+      const label = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
+      const keep = new Set(top);
+      const before = []; // [id, 改动前的条目拷贝；新加的为 null]，撤销用
+      const snap = (id) => { const c = S.candidates.get(id); return c ? JSON.parse(JSON.stringify(c)) : null; };
+      let stale = 0, added = 0, moved = 0;
+      for (const [id, c] of S.candidates) {
+        const x = c.extra || {};
+        if (keep.has(id) || !x.rank || x.lensLabel !== label || c.source !== S.sessionLabel) continue;
+        before.push([id, snap(id)]);
+        store.addCandidate(id, { rank: 0, rankStale: n, rankOf: null });
+        stale++;
+      }
+      for (const id of top) {
+        const old = snap(id);
+        before.push([id, old]);
+        store.addCandidate(id, extraFor(id));
+        if (!old) added++;
+        else if ((old.extra || {}).rank !== ui.rank.get(id) || (old.extra || {}).lensLabel !== label) moved++;
+      }
+      const parts = [];
+      if (added) parts.push('加入 ' + added + ' 条');
+      if (moved) parts.push(moved + ' 条更新了名次');
+      if (stale) parts.push(stale + ' 条已不在前 ' + n + ' 名');
+      if (!parts.length) return announce('前 ' + n + ' 条都已经在候选篮里了，名次没变');
+      const works = S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0;
+      const count = ui.vm ? ui.vm.count : 0;
+      const partial = works > count ? '（只按已读 ' + count + ' / ' + works + ' 条，读完后可以再加一次更新名次）' : '';
+      announce(parts.join('，') + ' · 共 ' + S.candidates.size + ' 条' + partial, '', { label: '撤销', run: () => {
+        store.removeCandidates(before.filter((e) => !e[1]).map((e) => e[0]));
+        store.restoreCandidates(before.filter((e) => e[1]));
+      } });
     },
     showGuide: () => { store.saveSettings({ guideDone: false }); schedule(); },
     toggleCustom: (open) => { ui.customOpen = open; reopen(); },
@@ -636,6 +716,7 @@
     return {
       type: S.route.type, lens: v.lens ? v.lens.key : '', sortKeys: S.view.sortKeys, sorted: S.view.sortKeys.length > 0, asc: S.view.asc, combo: ui.combo,
       filter: S.view.filter, passCount: v.passCount || 0, count: v.count || 0, badges: S.settings.badges,
+      works: S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0,
       lowSample: (v.tiers && v.tiers.na) || 0, customOpen: ui.customOpen == null ? null : ui.customOpen,
     };
   }
@@ -660,8 +741,11 @@
     const r = ui.rank && ui.rank.get(id);
     if (r && S.view.sortKeys.length) {
       x.rank = r;
+      x.rankStale = 0;
       const lens = P.matchLens(S.view);
       x.lensLabel = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
+      // 名次是在"当时读到的这些"里排的：记下读了多少、账号一共多少
+      x.rankOf = { count: ui.vm ? ui.vm.count : 0, total: S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0 };
     }
     if (S.route.type === 'profile') {
       const ps = A.profileStats();
@@ -694,13 +778,15 @@
     },
     markdown: () => E.toMarkdown(toCopy(), { now: Date.now() / 1000 }),
     // 默认只复制还没复制过的；all=true 时全部再复制一次。复制后标记"已复制"，提示里可以一键移出
+    // 入库包默认只给还没交给 Agent 的（新加的、有更新的），并记下"已复制"；
+    // 表格和 JSON 一律复制全部（和预览、下载 CSV 一致），也不改"已复制"标记
     copy: async (fmt, btn, all) => {
-      const list = all ? store.candidateList() : toCopy();
+      const list = fmt === 'md' && !all ? toCopy() : store.candidateList();
       const text = fmt === 'md' ? E.toMarkdown(list, { now: Date.now() / 1000 }) : fmt === 'json' ? E.toJson(list, { now: Date.now() / 1000 }) : E.toTsv(list);
       const ok = await copy(text, null, btn);
       if (!ok) return;
       const ids = list.map((v) => v.id);
-      store.markCopied(ids);
+      if (fmt === 'md') store.markCopied(ids);
       reopen();
       const what = fmt === 'md' ? '入库包已复制（' + ids.length + ' 条）：粘贴给 Agent，说「添加选题」' : fmt === 'json' ? '已复制 JSON（' + ids.length + ' 条）' : '已复制 ' + ids.length + ' 条，可以直接粘贴到飞书或 Excel';
       announce(what, '', { label: '移出这 ' + ids.length + ' 条', run: () => {
@@ -714,7 +800,7 @@
   };
   function toCopy() {
     const all = store.candidateList();
-    const fresh = all.filter((c) => !c.copiedAt);
+    const fresh = all.filter((c) => c.fresh);
     return fresh.length ? fresh : all;
   }
 

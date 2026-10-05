@@ -104,6 +104,9 @@
     // 打开/关闭/切换视频弹层（modal_id）也算路由变化：评论加载要停，评论模式要清
     if (route.type !== prev.type || route.kw !== prev.kw || route.secUid !== prev.secUid || route.awemeId !== prev.awemeId || route.modalId !== prev.modalId) {
       if (route.secUid !== prev.secUid) S.profileStats = null; // 换博主：账号总获赞要重读
+      // 换了一条视频：立刻清掉上一条的评论数据（不等新评论到达），门槛词计数、加入候选都不会用到上一条的
+      const vid = route.modalId || route.awemeId || '';
+      if (vid && vid !== S.comments.awemeId) resetComments(vid);
       ev.emit('route', route);
     }
   }
@@ -181,6 +184,11 @@
     return false;
   }
 
+  function resetComments(vid) {
+    const C = S.comments;
+    C.awemeId = vid; C.map = new Map(); C.total = 0; C.version++;
+    ev.emit('comments');
+  }
   function intakeComments(msg) {
     const r = S.route;
     const vid = r.modalId || r.awemeId || '';
@@ -188,7 +196,7 @@
     if (vid && aid && aid !== vid) return 0;
     const C = S.comments;
     const target = aid || vid;
-    if (target && target !== C.awemeId) { C.awemeId = target; C.map = new Map(); C.total = 0; }
+    if (target && target !== C.awemeId) resetComments(target);
     if (msg.total) C.total = Math.max(C.total, msg.total);
     let n = 0;
     for (const c of msg.items || []) {
@@ -300,16 +308,38 @@
     const rec = {};
     for (const k of ['id', 'kind', 'desc', 'author', 'authorId', 'createTime', 'durationMs', 'cover', 'digg', 'comment', 'collect', 'share', 'capturedAt']) rec[k] = v[k];
     const entry = old || { rec, addedAt: now(), source: S.sessionLabel, srcType: S.route.type };
-    if (extra) entry.extra = Object.assign({}, entry.extra || {}, extra);
+    if (extra) {
+      const prev = entry.extra || {};
+      entry.extra = Object.assign({}, prev, extra);
+      // 已经复制（交给 Agent）过的候选，又补上了评论结论或名次变了：记为"有更新"，下一次入库包会带上并注明
+      const note = old && old.copiedAt ? updateNote(prev, entry.extra) : '';
+      if (note) {
+        // 复制之后的多次更新合在一起写（补了评论、名次又变了），同类只留最新一条
+        const kind = (t) => (t.indexOf('补充了评论结论') === 0 ? 'comments' : 'rank');
+        const kinds = new Set(note.split('，').map(kind));
+        const keep = (entry.updateNote || '').split('，').filter((t) => t && !kinds.has(kind(t)));
+        entry.updatedAt = now(); entry.updateNote = keep.concat(note).join('，');
+      }
+    }
     S.candidates.set(id, entry);
     persistCandidates();
     ev.emit('candidates');
     return true;
   }
-  // 复制过入库包的候选记上时间，下次默认只复制新加入的
+  function updateNote(a, b) {
+    const n = [];
+    if (b.comments && JSON.stringify(b.comments) !== JSON.stringify(a.comments || null)) n.push('补充了评论结论');
+    const lens = b.lensLabel ? b.lensLabel + ' ' : '';
+    if (b.rankStale && !a.rankStale) n.push(lens + '已不在前 ' + b.rankStale + ' 名');
+    else if (b.rank && (b.rank !== a.rank || b.lensLabel !== a.lensLabel)) n.push('名次变为' + lens + '第 ' + b.rank + ' 名');
+    return n.join('，');
+  }
+  // 还没交给 Agent 的：从没复制过，或复制后又有更新（复制时清掉"有更新"标记，不靠比较时间先后）
+  const isFresh = (c) => !c.copiedAt || !!c.updatedAt;
+  // 复制过入库包的候选记上时间，下次默认只复制新加入的（和有更新的）
   function markCopied(ids) {
     const t = now();
-    for (const id of ids) { const c = S.candidates.get(id); if (c) c.copiedAt = t; }
+    for (const id of ids) { const c = S.candidates.get(id); if (c) { c.copiedAt = t; delete c.updatedAt; delete c.updateNote; } }
     persistCandidates();
     ev.emit('candidates');
   }
@@ -338,7 +368,8 @@
   // 候选篮里的记录：派生指标按"采集时"计算（D+N 与比率对应同一时刻）
   function candidateList() {
     const t = now();
-    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, t), { addedAt: c.addedAt, source: c.source, srcType: c.srcType, extra: c.extra || null, copiedAt: c.copiedAt || 0 }));
+    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, t), { addedAt: c.addedAt, source: c.source, srcType: c.srcType, extra: c.extra || null, copiedAt: c.copiedAt || 0,
+      updatedAt: c.updatedAt || 0, updateNote: c.updateNote || '', fresh: isFresh(c) }));
   }
 
   function load() {

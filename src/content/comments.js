@@ -128,6 +128,9 @@
   // 当前页面上评论的数据（用于门槛统计、复制、导出），按当前排序
   function collected() {
     const C = DSP.store.S.comments;
+    const r = DSP.store.S.route;
+    const vid = r.modalId || r.awemeId || '';
+    if (vid && C.awemeId !== vid) return []; // 不是当前这条视频的评论
     const list = [...C.map.values()];
     const key = state.mode === 'replies' ? 'replies' : 'digg';
     list.sort((a, b) => (b[key] - a[key]) || (b.digg - a.digg));

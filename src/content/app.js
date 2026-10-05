@@ -34,7 +34,8 @@
             if (pending.length > 12) pending.shift();
           }
         } else if (d.type === 'comments' && Array.isArray(d.items)) {
-          if (d.meta) meta.comments = d.meta;
+          // 翻页信息记下属于哪条视频：换视频后不沿用上一条的"还有没有更多"
+          if (d.meta) meta.comments = Object.assign({ awemeId: String(d.awemeId || '') }, d.meta);
           store.intakeComments({ awemeId: d.awemeId, total: d.total, items: d.items.filter(validComment) });
         }
       });

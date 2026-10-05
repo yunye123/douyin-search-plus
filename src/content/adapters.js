@@ -105,6 +105,12 @@
     return document.scrollingElement || document.documentElement;
   }
   const isDocScroller = (sc) => !sc || sc === document.body || sc === document.documentElement || sc === document.scrollingElement;
+  // 在元素所在的、真正在滚的那个容器里滚动 top 像素。只有 document.scrollingElement 走 window；
+  // 其余（包括 body 自己在滚：真实抖音就是这样，此时 window.scrollBy 不起作用）直接滚那个元素
+  function scrollByIn(el, top, behavior) {
+    const sc = scrollerOf(el);
+    (sc && sc !== document.scrollingElement ? sc : window).scrollBy({ top, behavior: behavior || 'auto' });
+  }
 
   // 从评论 DOM 里读点赞数（没有 fiber 和接口数据时的兜底）：
   // 第一个"旁边有 SVG 图标"的独立纯数字；正文里的数字（QQ 号）没有图标
@@ -268,7 +274,7 @@
 
   DSP.adapters = {
     ID_RE, LINK_SEL, LIST_STRATEGIES,
-    locateList, cardsOf, commentList, commentRows, scrollerOf, isDocScroller, domCommentDigg, normText,
+    locateList, cardsOf, commentList, commentRows, scrollerOf, isDocScroller, scrollByIn, domCommentDigg, normText,
     blockingReason, headerBottom, pageTheme, bgOf, profileStats, diagnose,
   };
 })();

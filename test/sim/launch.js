@@ -39,6 +39,16 @@ async function launch(opts = {}) {
   return { context, sim, extensionId, close };
 }
 
+// 扩展 ID：本插件没有后台脚本，从扩展管理页读（只在测试里用）
+async function extensionId(context) {
+  const mgr = await context.newPage();
+  try {
+    await mgr.goto('chrome://extensions/');
+    const list = await mgr.evaluate(() => new Promise((res) => chrome.developerPrivate.getExtensionsInfo(res)));
+    return list.length ? list[0].id : null;
+  } finally { await mgr.close(); }
+}
+
 const SITE = 'https://www.douyin.com';
 const urls = {
   search: (kw = 'AI保姆级教程', q = '') => `${SITE}/search/${encodeURIComponent(kw)}?type=video${q ? '&' + q : ''}`,
@@ -47,4 +57,4 @@ const urls = {
   home: () => `${SITE}/`,
 };
 
-module.exports = { launch, urls, EXT_DIR };
+module.exports = { launch, urls, extensionId, EXT_DIR };

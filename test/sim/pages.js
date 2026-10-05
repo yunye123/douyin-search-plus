@@ -52,6 +52,14 @@ const dur = (ms) => { const s = Math.round(ms / 1000); return String(Math.floor(
 const escH = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const FK = '__reactFiber$sim' + Math.random().toString(36).slice(2, 8);
 const NOFIBER = /[?&](nofiber|broken)=1/.test(location.search);
+// ?bodyscroll=1：和真实抖音一样由 body 自己滚动（html 不滚，window.scrollBy / scrollTo 不起作用）
+const BODYSCROLL = /[?&]bodyscroll=1/.test(location.search);
+if (BODYSCROLL) { const st = document.createElement('style'); st.textContent = 'html{height:100%;overflow:hidden}body{height:100%;overflow-y:auto}'; document.head.appendChild(st); }
+function pageNearBottom(px) {
+  if (BODYSCROLL) { const b = document.body; return b.scrollTop + b.clientHeight >= b.scrollHeight - px; }
+  return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - px;
+}
+function onPageScroll(fn) { (BODYSCROLL ? document.body : window).addEventListener('scroll', fn, { passive: true }); }
 function attachFiber(el, itemInfo) { if (NOFIBER) return; el[FK] = { tag: 5, memoizedProps: { className: el.className }, return: { tag: 0, memoizedProps: { itemInfo } } }; }
 function apiToSearchFiber(a) {
   return { type: 1, docType: 1, awemeInfo: {
@@ -158,8 +166,8 @@ async function loadMore() {
     S.offset = j.cursor; S.hasMore = j.has_more;
   } finally { S.loading = false; }
 }
-function nearBottom() { return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 300; }
-window.addEventListener('scroll', () => { if (nearBottom()) loadMore(); }, { passive: true });
+function nearBottom() { return pageNearBottom(300); }
+onPageScroll(() => { if (nearBottom()) loadMore(); });
 window.addEventListener('wheel', (e) => { if (e.deltaY > 0 && nearBottom()) loadMore(); }, { passive: true });
 // SPA：换关键词 / 切官方筛选 —— 清空列表，从接口重新拉第一页（与真实站点一致：第二次起首屏走接口）
 function resetAndLoad() { ul.textContent = ''; S.offset = 0; S.hasMore = 1; S.total = 0; window.scrollTo(0, 0); loadMore(); }
@@ -270,7 +278,7 @@ async function loadMore() {
     S.cursor = j.max_cursor; S.hasMore = j.has_more;
   } finally { S.loading = false; }
 }
-window.addEventListener('scroll', () => { if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 300) loadMore(); }, { passive: true });
+onPageScroll(() => { if (pageNearBottom(300)) loadMore(); });
 chaos('[data-e2e="user-post-list"] ul[data-e2e="scroll-list"] > li', (li, replace) => {
   const fk = Object.keys(li).find((k) => k.startsWith('__reactFiber$'));
   const f = li[fk].return.memoizedProps.itemInfo;
