@@ -173,3 +173,11 @@ test('抖音改版（选择器与 fiber 全失效）：进入"读不到结果"�
   expect(s.count).toBe(0);
   await expect(page.locator('.bar-text, .launcher').first()).toContainText(/读不到/);
 });
+
+test('视频弹层里出现"登录后查看更多评论"不会被误判成登录墙', async ({ page }) => {
+  await page.goto(urls.search('弹层', 'modal=1'));
+  await ready(page);
+  await page.waitForTimeout(1500);
+  const s = await state(page);
+  expect(s.ui.health).not.toBe('blocked');
+});

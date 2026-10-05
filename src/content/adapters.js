@@ -149,9 +149,11 @@
           if (cs.position !== 'fixed') continue;
           const r = p.getBoundingClientRect();
           if (r.width < 240 || r.height < 140) continue;
-          const t = (p.textContent || '').slice(0, 600);
-          if (RE_CAPTCHA.test(t)) return 'captcha';
-          if (RE_LOGIN.test(t)) return 'login';
+          // 登录框/验证框文字很少（约几十字）；视频弹层、评论区这种内容多的固定层不算拦截
+          const all = p.textContent || '';
+          if (all.length > 400) break;
+          if (RE_CAPTCHA.test(all)) return 'captcha';
+          if (RE_LOGIN.test(all)) return 'login';
           break;
         }
       }
@@ -164,7 +166,9 @@
       if (r.width < 200 || r.height < 120) continue;
       const cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0) continue;
-      const t = (el.textContent || '').slice(0, 400);
+      const full = el.textContent || '';
+      if (full.length > 400) continue; // 内容多的弹层（视频弹层、评论）不是登录/验证框
+      const t = full;
       if (RE_CAPTCHA.test(t) || /captcha|verify/i.test(el.id + ' ' + el.className)) return 'captcha';
       if (RE_LOGIN.test(t)) return 'login';
     }

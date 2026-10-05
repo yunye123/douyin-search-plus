@@ -194,6 +194,16 @@ render(__FIRST__);
 S.offset = 20;
 // ?broken=1：模拟抖音改版——容器 id、data-e2e 全换掉，fiber 也没有（插件应进入"读不到结果"并给出诊断）
 if (/[?&]broken=1/.test(location.search)) { const c = document.getElementById("search-result-container"); c.id = "src-" + Math.random().toString(36).slice(2, 7); ul.removeAttribute("data-e2e"); }
+// ?modal=1：模拟在搜索页点开视频弹层（满屏固定层，评论区里有"登录后查看更多评论"字样）——不能被当成登录墙
+if (/[?&]modal=1/.test(location.search)) {
+  const m = document.createElement('div');
+  m.className = 'sim-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,16,.92);z-index:80;display:flex;gap:24px;padding:40px';
+  m.innerHTML = '<div style="flex:1;border-radius:16px;background:#222"></div><div style="width:420px;overflow:auto;color:#ccc;font-size:14px;line-height:22px">' +
+    Array.from({ length: 30 }, (_, i) => '<p>用户' + (1000 + i) + '：这个教程真的太实用了，第' + (i + 1) + '步我也跟着做出来了，感谢分享！</p>').join('') +
+    '<p style="color:#888">登录后查看更多评论</p></div>';
+  document.body.appendChild(m);
+}
 S.ready = true;
 `;
 

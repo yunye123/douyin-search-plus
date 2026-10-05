@@ -61,6 +61,8 @@
     // 插件在扩展管理页被重载后，这个页面里的脚本已和扩展断开
     if (!ui.stale && DSP.alive && !DSP.alive()) { ui.stale = true; stopLoaders('route'); teardownPage(); schedule(); return; }
     const theme = A.pageTheme();
+    ui.theme = theme;
+    ui.headerTop = A.headerBottom();
     for (const x of [ui.root && ui.root.el, ui.dock && ui.dock.el, ui.cbar && ui.cbar.el]) if (x && x.dataset.theme !== theme) x.dataset.theme = theme;
     schedule();
   }
@@ -178,8 +180,12 @@
         const lay = ui.dock.root.querySelector('.dsp-layer') || ui.dock.root.appendChild(h('div', { class: 'dsp-layer' }));
         clear(lay).appendChild(ui.bar.bar);
       }
-      ui.dock.el.style.top = (A.headerBottom() + 8) + 'px';
-      ui.dock.el.dataset.theme = A.pageTheme();
+      // 顶栏高度和深浅色很少变：由看门狗每秒测一次，这里只用缓存值
+      if (ui.headerTop == null) ui.headerTop = A.headerBottom();
+      if (!ui.theme) ui.theme = A.pageTheme();
+      const top = (ui.headerTop + 8) + 'px';
+      if (ui.dock.el.style.top !== top) ui.dock.el.style.top = top;
+      if (ui.dock.el.dataset.theme !== ui.theme) ui.dock.el.dataset.theme = ui.theme;
       docked = true;
       observe(located.el);
     } else if (ui.dock) {
@@ -283,7 +289,8 @@
       return;
     }
     ui.cbar = host('dsp-cbar', list.parentElement, list);
-    ui.cbar.el.dataset.theme = A.pageTheme();
+    if (!ui.theme) ui.theme = A.pageTheme();
+    if (ui.cbar.el.dataset.theme !== ui.theme) ui.cbar.el.dataset.theme = ui.theme;
     if (!ui.cb || !ui.cb.box.isConnected) {
       ui.cb = CB.build(commentApi);
       const lay = ui.cbar.root.querySelector('.dsp-layer') || ui.cbar.root.appendChild(h('div', { class: 'dsp-layer' }));
