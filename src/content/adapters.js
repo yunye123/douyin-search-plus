@@ -107,8 +107,9 @@
   // 向上找第一个真正在滚动的祖先；body / html 也算（真实抖音有时是 body 在滚，window.scrollTo 不起作用）
   // 遇到固定定位的层（例如视频弹层）就停：返回层里第一个可滚的容器（还没溢出也算），没有就返回这一层本身。
   // 绝不越过弹层去滚背后的页面（那会替用户悄悄翻页）
+  // 从元素自己开始找：抖音视频弹层里，评论列表本身就是滚动框（2026-10 实测）
   function scrollerOf(el) {
-    let sc = el && el.parentElement;
+    let sc = el;
     let cand = null;
     while (sc) {
       const cs = getComputedStyle(sc);

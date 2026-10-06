@@ -820,3 +820,34 @@ test('点开下一条视频时评论比地址先到：评论不会丢', async ({
   }, B);
   await until(page, (x) => x.route.awemeId === B && x.comments.awemeId === B && x.comments.count === 20, { label: 'B 的评论补上了' });
 });
+
+test('视频弹层里评论列表自己就是滚动框：点「加载全部」能继续读评论', async ({ page }) => {
+  await page.goto(urls.search('弹层自滚'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  await page.evaluate(() => {
+    const first = /(\d{15,})/.exec(document.querySelector('#search-result-container li a').getAttribute('href'))[1];
+    history.pushState({}, '', location.pathname + location.search + '&modal_id=' + first);
+    const m = document.createElement('div');
+    m.id = 'sim-modal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:80;background:#111;display:flex;padding:40px';
+    // 和真实抖音一样：评论列表自己 overflow 滚动，外层不滚
+    m.innerHTML = '<div style="flex:1"></div><div style="width:420px;height:calc(100vh - 80px);display:flex;flex-direction:column"><div style="height:60px">全部评论</div><div data-e2e="comment-list" style="flex:1;overflow-y:scroll"></div></div>';
+    document.body.appendChild(m);
+    const list = m.querySelector('[data-e2e="comment-list"]');
+    const st = { cursor: 0, more: 1, busy: false };
+    async function more() {
+      if (st.busy || !st.more) return; st.busy = true;
+      const j = await xhrJson('/aweme/v1/web/comment/list/?aweme_id=' + first + '&cursor=' + st.cursor + '&count=20');
+      for (const c of j.comments) { const w = document.createElement('div'); w.innerHTML = '<div data-e2e="comment-item" style="padding:14px 0">' + escH(c.text) + '</div>'; list.appendChild(w); }
+      st.cursor = j.cursor; st.more = j.has_more; st.busy = false;
+    }
+    list.addEventListener('scroll', () => { if (list.scrollTop + list.clientHeight >= list.scrollHeight - 200) more(); });
+    more();
+  });
+  await until(page, (x) => x.comments.count >= 20);
+  await dsp(page, 'c-load').click();
+  await until(page, (x) => x.comments.count >= 60, { timeout: 30000, label: '弹层评论继续加载' });
+  expect(await page.evaluate(() => scrollY)).toBe(0); // 背后的搜索页不动
+});
