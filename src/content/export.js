@@ -113,6 +113,8 @@
       lines.push('');
       lines.push('## ' + (i + 1) + '. ' + ((v.desc || '').replace(/\s+/g, ' ').slice(0, 40) || '（无标题）'));
       if (isUpdate(v)) lines.push('- 更新：这条之前已经交给过你，这次' + v.updateNote + '。请更新原条目，不要新建');
+      // 交给过、之后没变化的（"全部再复制一次"或都复制过时会再给）：也要说清楚，免得 Agent 建重复条目
+      else if (v.copiedAt) lines.push('- 已交给过你（' + U.fmtDate(v.copiedAt) + '）：选题库里已有这条的话，请更新原条目，不要新建');
       lines.push('- 原链接：' + videoUrl(v));
       // 原标题照抄 desc；多行时缩进续行，保持在同一个列表项里
       lines.push('- 原标题：' + (v.desc || '').replace(/\n/g, '\n  '));
@@ -154,6 +156,7 @@
         作者主页: authorUrl(v),
         发现于: discovered(v),
         更新: isUpdate(v) ? v.updateNote : '',
+        已交给过: v.copiedAt ? U.fmtDate(v.copiedAt) : '',
         账号快照: x.account ? accountText(x.account) : '',
         占账号总获赞: x.share == null ? null : ratio4(x.share),
         发布时间: U.fmtDate(v.createTime),

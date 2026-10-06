@@ -34,9 +34,14 @@
             if (pending.length > 12) pending.shift();
           }
         } else if (d.type === 'comments' && Array.isArray(d.items)) {
-          // 翻页信息记下属于哪条视频：换视频后不沿用上一条的"还有没有更多"
-          if (d.meta) meta.comments = Object.assign({ awemeId: String(d.awemeId || '') }, d.meta);
-          store.intakeComments({ awemeId: d.awemeId, total: d.total, items: d.items.filter(validComment) });
+          const c = { awemeId: String(d.awemeId || ''), total: d.total, meta: d.meta, items: d.items.filter(validComment) };
+          // 评论比地址先到（点开下一条视频时，抖音可能先请求评论再改地址）：先暂存，地址变了再交给那条视频
+          const r = store.S.route;
+          const vid = r.modalId || r.awemeId || '';
+          if (c.awemeId && vid && c.awemeId !== vid) {
+            pendingComments.push({ c, at: Date.now() });
+            if (pendingComments.length > 6) pendingComments.shift();
+          } else applyComments(c);
         }
       });
     } else if (d.ns === 'dsp-test' && d.type === 'state?' && root.dataset.dspTest === '1') {
@@ -60,6 +65,12 @@
   // ---------- 路由（SPA 导航） ----------
   let lastHref = '';
   const pending = []; // 暂存的未收批次（最多 12 批、30 秒内有效）
+  const pendingComments = []; // 暂存的、还不属于当前视频的评论（最多 6 批、30 秒内有效）
+  function applyComments(c) {
+    // 翻页信息记下属于哪条视频：换视频后不沿用上一条的"还有没有更多"
+    if (c.meta) meta.comments = Object.assign({ awemeId: c.awemeId }, c.meta);
+    store.intakeComments({ awemeId: c.awemeId, total: c.total, items: c.items });
+  }
   function checkRoute() {
     if (location.href === lastHref) return;
     lastHref = location.href;
@@ -68,6 +79,14 @@
     const now = Date.now();
     const replay = pending.splice(0).filter((b) => now - b.at < 30000);
     for (const b of replay) store.intakeVideos(b.ctx, b.items);
+    const r = store.S.route;
+    const vid = r.modalId || r.awemeId || '';
+    const keep = [];
+    for (const p of pendingComments.splice(0)) {
+      if (now - p.at >= 30000) continue;
+      if (vid && p.c.awemeId === vid) applyComments(p.c); else keep.push(p);
+    }
+    pendingComments.push(...keep);
   }
 
   // ---------- 测试快照 ----------

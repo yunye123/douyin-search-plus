@@ -147,3 +147,14 @@ test('入库包：名次写明读了多少；掉出前列的写明；复制后�
   // 复制之后没再变（复制时已清掉更新标记）：不写"更新"
   assert.ok(!md(mk({}, { copiedAt: NOW })).includes('- 更新：'));
 });
+
+test('交给过、之后没变化的条目再导出时也注明，Agent 不会建重复条目', () => {
+  const w = Object.assign(M.derive({ id: '7400000000000000011', kind: 'video', desc: '旧条目', author: 'x', createTime: NOW - 5 * 86400, capturedAt: NOW, durationMs: 60000, digg: 500, comment: 5, collect: 450, share: 3 }, NOW), { copiedAt: NOW - 86400 });
+  const md = E.toMarkdown([w], { now: NOW });
+  assert.ok(md.includes('- 已交给过你（'));
+  assert.ok(md.includes('请更新原条目，不要新建'));
+  assert.equal(JSON.parse(E.toJson([w], { now: NOW })).items[0].已交给过, U.fmtDate(NOW - 86400));
+  // 从没交给过的：不写
+  const fresh = Object.assign({}, w, { copiedAt: 0 });
+  assert.ok(!E.toMarkdown([fresh], { now: NOW }).includes('已交给过'));
+});

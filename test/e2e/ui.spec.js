@@ -805,3 +805,18 @@ test('综合标签（瀑布流）：卡片上有收藏率、工具栏挂在结�
   await until(page, (x) => x.ui.docked && x.count >= 20);
   await expect.poll(() => page.locator('#search-result-container li .dsp-ann').count()).toBeGreaterThanOrEqual(18);
 });
+
+test('点开下一条视频时评论比地址先到：评论不会丢', async ({ page }) => {
+  const A = '7499999999999990081', B = '7499999999999990082';
+  await page.goto(urls.video(A) + '?nofiber=1'); // 只有接口数据，最容易丢
+  await ready(page);
+  await until(page, (x) => x.comments.awemeId === A && x.comments.count >= 20);
+  await page.evaluate((B) => {
+    xhrJson('/aweme/v1/web/comment/list/?aweme_id=' + B + '&cursor=0&count=20').then((j) => {
+      document.querySelector('[data-e2e="comment-list"]').textContent = '';
+      j.comments.forEach(addComment);
+      setTimeout(() => history.pushState({}, '', '/video/' + B + location.search), 300);
+    });
+  }, B);
+  await until(page, (x) => x.route.awemeId === B && x.comments.awemeId === B && x.comments.count === 20, { label: 'B 的评论补上了' });
+});

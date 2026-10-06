@@ -453,7 +453,8 @@
       if (!c) { const tries = prev ? prev.tries + 1 : 1; stampedComments.set(row, { ok: false, tries, next: now + (tries === 1 ? 2000 : 10000) }); continue; }
       // 这条评论属于哪条视频：评论自己带的视频 id 优先；没有就沿用第一次读到它时的地址（不随换视频改变）
       const aid = c.aid || (prev && prev.aid) || cur;
-      stampedComments.set(row, { ok: true, at: now, aid });
+      // 暂时不属于当前视频的行（例如评论比地址先渲染出来）：2 秒后就重读，地址一变能马上补上
+      stampedComments.set(row, { ok: true, at: cur && aid && aid !== cur ? now - 13000 : now, aid });
       markHydrated();
       row.setAttribute('data-dsp-cid', c.cid);
       row.setAttribute('data-dsp-digg', String(c.digg));
