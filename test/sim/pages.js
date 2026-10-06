@@ -365,7 +365,8 @@ function addComment(c) {
     (c.reply_comment_total ? '<div class="c-more">展开' + c.reply_comment_total + '条回复</div>' : '') + '</div></div>';
   // 评论项也挂 fiber（真实结构未知，这里模拟成 props.comment = 接口对象）；?nofiber=1 时不挂，测试纯接口兜底
   const item = w.querySelector('[data-e2e="comment-item"]');
-  if (!NOFIBER) item[FK] = { tag: 5, memoizedProps: { className: 'c' }, return: { tag: 0, memoizedProps: { comment: c, index: 0 } } };
+  // 和真实页面一样：fiber 上是 commentInfo（camelCase，回复数叫 replyTotal，不带视频 id）
+  if (!NOFIBER) item[FK] = { tag: 5, memoizedProps: { className: 'c' }, return: { tag: 0, memoizedProps: { commentInfo: { cid: c.cid, text: c.text, diggCount: c.digg_count, replyTotal: c.reply_comment_total, createTime: c.create_time, user: { nickname: c.user.nickname }, ipLabel: c.ip_label }, index: 0 } } };
   list.appendChild(w);
 }
 async function loadMore() {

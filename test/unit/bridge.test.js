@@ -113,3 +113,9 @@ test('评论归一化', () => {
   assert.equal(r.ip, c.ip);
   assert.equal(bridge.normalizeComment({ cid: 'x' }), null);
 });
+
+test('评论：页面 fiber 里的回复数叫 replyTotal，也能读到', () => {
+  const r = bridge.normalizeComment({ cid: '7692075968438485786', text: '你最该出的教程是不被封号', diggCount: 3, replyTotal: 19, createTime: 1790000000 });
+  assert.equal(r.replies, 19);
+  assert.equal(r.digg, 3);
+});

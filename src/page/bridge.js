@@ -93,7 +93,8 @@
       cid,
       text: str(c.text).trim(),
       digg: num(pick(c, ['digg_count', 'diggCount'])),
-      replies: num(pick(c, ['reply_comment_total', 'replyCommentTotal'])),
+      // 接口里叫 reply_comment_total；页面 fiber（commentInfo）里叫 replyTotal（2026-10 实测）
+      replies: num(pick(c, ['reply_comment_total', 'replyCommentTotal', 'replyTotal', 'reply_total'])),
       nickname: str(user.nickname),
       createTime: ct,
       aid: str(pick(c, ['aweme_id', 'awemeId'])),
