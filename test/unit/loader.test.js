@@ -108,6 +108,43 @@ test('滚动不伪造滚轮或鼠标事件，默认间隔仍在 1800–3600ms（
   }
 });
 
+test('评论加载间隔锁在 1200–2600ms（每 5 轮另加停顿）', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const src = fs.readFileSync(path.join(__dirname, '../../src/content/ui.js'), 'utf8');
+  const found = /delay:\s*\[(\d+),\s*(\d+)\]/.exec(src);
+  assert.ok(found, 'ui.js 里要有评论加载的 delay');
+  assert.deepEqual([Number(found[1]), Number(found[2])], [1200, 2600]);
+
+  const g = globalThis;
+  const saved = { setTimeout: g.setTimeout, clearTimeout: g.clearTimeout, random: Math.random };
+  const delays = [];
+  const jobs = [];
+  try {
+    g.setTimeout = (fn, ms) => { delays.push(ms); jobs.push(fn); return jobs.length; };
+    g.clearTimeout = () => {};
+    const seq = [0, 0.5, 0.999999, 0, 0, 0.999999, 0.25];
+    let ri = 0;
+    Math.random = () => seq[ri++];
+    const loader = L.create({
+      delay: [1200, 2600],
+      count: () => 1, cap: () => 100, blocked: () => null, hasMore: () => true, scroll() {},
+    });
+    loader.start();
+    let guard = 0;
+    while (jobs.length && guard++ < 20) jobs.shift()();
+    assert.equal(delays.length, 6);
+    for (const i of [0, 1, 2, 3, 5]) assert.ok(delays[i] >= 1200 && delays[i] <= 2600, 'tick ' + i + '=' + delays[i]);
+    assert.ok(delays[4] >= 2700 && delays[4] <= 5600, 'pause ' + delays[4]);
+    assert.equal(loader.running, false);
+    assert.equal(loader.reason, 'stalled');
+  } finally {
+    g.setTimeout = saved.setTimeout;
+    g.clearTimeout = saved.clearTimeout;
+    Math.random = saved.random;
+  }
+});
+
 test('结束原因文案', () => {
   assert.match(L.REASONS.login(63), /登录/);
   assert.match(L.REASONS.stalled(63), /手动/);

@@ -192,7 +192,7 @@
       mid: '大于 40% 且小于 80%：有一定收藏价值，看内容形态再判断。',
       low: '10% 到 40%（含）有门槛：可能太难、太贵或进不去，去评论区看看卡在哪。',
       show: '<10% 展示型：好看但不实用，教程类慎跟。',
-      na: '点赞 < 100，样本太少，先看评论和同类视频再判断。',
+      na: M.tierLabel(v) === '缺数据' ? '收藏数没读到，先不判档。' : '点赞 < 100，样本太少，先看评论和同类视频再判断。',
     };
     box.appendChild(h('div', { class: 'dd-verdict v-' + tier }, verdicts[tier]));
     if (opts.dimReason) box.appendChild(h('div', { class: 'dd-why' }, '没进这次排序：' + opts.dimReason));
@@ -336,5 +336,5 @@
 `;
   DSP.css = (DSP.css || '') + DETAIL_CSS;
 
-  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, focusChip, detail };
+  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, focusChip, detail, detailCard };
 })();

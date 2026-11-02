@@ -889,6 +889,16 @@ test('搜索和主页都有最新发布、传播型、收藏最多、有门槛',
     comments.push(v.comment);
   }
   for (let i = 1; i < comments.length; i++) expect(comments[i]).toBeLessThanOrEqual(comments[i - 1]);
+  expect(barrier.sortedIds).toEqual(expect.arrayContaining(['7480000000000000401', '7480000000000000101', '7480000000000000251']));
+  expect(barrier.sortedIds).not.toContain('7480000000000000501');
+  expect(barrier.sortedIds.some((id) => ext.sim.registry.get(id).isNote)).toBe(true);
+  const edge40 = ext.sim.registry.get('7480000000000000401');
+  const edge10 = ext.sim.registry.get('7480000000000000101');
+  expect(edge40.collect / edge40.digg).toBe(0.4);
+  expect(edge10.collect / edge10.digg).toBe(0.1);
+  expect(edge10.isNote).toBe(true);
+  await expect(page.locator('.bar-text')).not.toContainText('真需求没过线');
+  expect(await page.locator('.bar-text').getAttribute('title') || '').not.toContain('真需求没过线');
 
   await page.goto(urls.profile());
   await ready(page);
@@ -896,6 +906,10 @@ test('搜索和主页都有最新发布、传播型、收藏最多、有门槛',
   await dsp(page, 'sort').click();
   const profileKeys = await page.locator('[data-lens]').evaluateAll((els) => els.map((e) => e.dataset.lens));
   expect(profileKeys).toEqual(['need', 'ratio', 'rising', 'talk', 'top10', 'newest', 'spread', 'mostSaved', 'barrier']);
+  await page.locator('[data-lens="newest"]').click();
+  const newestProfile = await until(page, (x) => x.route.type === 'profile' && x.view.sortKeys.join() === 'createTime' && x.sortedIds.length > 0);
+  const profileTimes = newestProfile.sortedIds.map((id) => ext.sim.registry.get(id).createTime);
+  for (let i = 1; i < profileTimes.length; i++) expect(profileTimes[i]).toBeLessThanOrEqual(profileTimes[i - 1]);
 });
 
 test('评论区可以按时间排序，新的在前；按赞和按回复还在', async ({ page }) => {
@@ -920,6 +934,24 @@ test('评论区可以按时间排序，新的在前；按赞和按回复还在',
     for (let i = 1; i < times.length; i++) if (times[i] > times[i - 1]) return false;
     return ordered[0].style.order === '1';
   }), { timeout: 8000 }).toBe(true);
+});
+
+test('精选弹层没打开评论时，不报评论区读不到', async ({ page }) => {
+  await page.goto(urls.search('精选无评论'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  const X = '7499999999999999777';
+  await page.evaluate((id) => {
+    history.pushState({}, '', '/jingxuan?modal_id=' + id);
+    const m = document.createElement('div');
+    m.id = 'sim-modal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:80;background:#111';
+    m.textContent = '视频';
+    document.body.appendChild(m);
+  }, X);
+  await until(page, (x) => x.route.modalId === X && x.comments.count === 0);
+  await page.waitForTimeout(7000);
+  await expect(page.locator('[data-dsp="launcher"]')).toHaveCount(0);
 });
 
 test('评论列表选择器缺失时说明读不到，并可复制诊断', async ({ page, ext }) => {

@@ -1,6 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const M = require('../../src/content/metrics.js');
 const U = require('../../src/content/util.js');
 
@@ -140,8 +142,8 @@ test('按分档筛选与未达标原因', () => {
 
 test('分档区间文案与比较符同一边界，正好 40% 仍是有门槛', () => {
   assert.equal(M.CR_TIERS.high.range, '≥80%');
-  assert.equal(M.CR_TIERS.mid.range, '>40% 且 <80%');
-  assert.equal(M.CR_TIERS.low.range, '10%～40%（含）');
+  assert.equal(M.CR_TIERS.mid.range, '大于 40% 且小于 80%');
+  assert.equal(M.CR_TIERS.low.range, '10% 到 40%（含）');
   assert.equal(M.CR_TIERS.show.range, '<10%');
   assert.equal(M.CR_TIERS.na.range, '点赞<100');
   assert.equal(M.crTier(mk(1, { digg: 1000, collect: 800 })), 'high');
@@ -151,6 +153,12 @@ test('分档区间文案与比较符同一边界，正好 40% 仍是有门槛', 
   assert.equal(M.crTier(mk(1, { digg: 1000, collect: 99 })), 'show');
   assert.equal(M.crTier(mk(1, { digg: 100, collect: 10 })), 'low');
   assert.equal(M.crTier(mk(1, { digg: 99, collect: 90 })), 'na');
+  const popup = fs.readFileSync(path.join(__dirname, '../../src/popup/popup.html'), 'utf8');
+  assert.ok(popup.includes(M.CR_TIERS.mid.range), popup);
+  assert.ok(popup.includes(M.CR_TIERS.low.range), popup);
+  for (const old of ['40%~80%', '40% ~ 80%', '40~80%', '10%~40%', '10% ~ 40%', '10~40%', '>40% 且 <80%', '10%～40%']) {
+    assert.equal(popup.includes(old), false, old);
+  }
 });
 
 test('按发布时间：新的在前，没有时间的始终在最后', () => {
@@ -170,6 +178,7 @@ test('转发率排序：样本少沉底', () => {
     mk('mid', { digg: 500, share: 50 }),
   ];
   assert.deepEqual(M.sortList(list, ['sr']).map((x) => x.v.id), ['hi', 'mid', 'low']);
+  assert.deepEqual(M.sortList(list, ['sr'], true).map((x) => x.v.id), ['mid', 'hi', 'low']);
 });
 
 test('收藏最多不看比率，图文和样本少都按收藏数', () => {

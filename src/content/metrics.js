@@ -202,8 +202,8 @@
   // 正好 40% 是有门槛（cr > 0.4 才是一般），不要写成两端都含的「40%~80%」。
   const CR_TIERS = {
     high: { label: '真需求', range: '≥80%' },
-    mid:  { label: '一般', range: '>40% 且 <80%' },
-    low:  { label: '有门槛', range: '10%～40%（含）' },
+    mid:  { label: '一般', range: '大于 40% 且小于 80%' },
+    low:  { label: '有门槛', range: '10% 到 40%（含）' },
     show: { label: '展示型', range: '<10%' },
     na:   { label: '样本少', range: '点赞<' + RATIO_MIN_DIGG },
   };

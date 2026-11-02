@@ -14,9 +14,20 @@ function createSim() {
   const cache = new Map();
   const remember = (list) => { for (const v of list) registry.set(v.id, v); return list; };
 
+  // 「新看法」搜索固定放几条边界样本，e2e 不靠对数正态碰巧出现 10%、40% 和图文
+  const LENS_FIXTURES = [
+    { id: '7480000000000000401', desc: '正好百分之四十', author: '固定样本', digg: 1000, comment: 11, collect: 400, share: 20, createTime: data.NOW - 86400, isNote: false, durMs: 60000, topic: '固定', palette: ['#111', '#222'], isMix: false, secUid: 'MS4wLjABAAAA_sim_fixed' },
+    { id: '7480000000000000101', desc: '正好百分之十图文', author: '固定样本', digg: 1000, comment: 7, collect: 100, share: 10, createTime: data.NOW - 2 * 86400, isNote: true, durMs: 0, topic: '固定', palette: ['#111', '#222'], isMix: false, secUid: 'MS4wLjABAAAA_sim_fixed' },
+    { id: '7480000000000000251', desc: '有门槛图文', author: '固定样本', digg: 1000, comment: 40, collect: 250, share: 15, createTime: data.NOW - 3 * 86400, isNote: true, durMs: 0, topic: '固定', palette: ['#111', '#222'], isMix: false, secUid: 'MS4wLjABAAAA_sim_fixed' },
+    { id: '7480000000000000501', desc: '一般档不该进有门槛', author: '固定样本', digg: 1000, comment: 80, collect: 500, share: 30, createTime: data.NOW - 4 * 86400, isNote: false, durMs: 60000, topic: '固定', palette: ['#111', '#222'], isMix: false, secUid: 'MS4wLjABAAAA_sim_fixed' },
+  ];
   const searchSet = (kw) => {
     const k = 's:' + kw;
-    if (!cache.has(k)) cache.set(k, remember(data.makeVideos(data.hashStr(kw), SEARCH_TOTAL)));
+    if (!cache.has(k)) {
+      const list = data.makeVideos(data.hashStr(kw), SEARCH_TOTAL);
+      if (kw === '新看法') list.unshift(...LENS_FIXTURES.map((v) => Object.assign({}, v)));
+      cache.set(k, remember(list));
+    }
     return cache.get(k);
   };
   const profileSet = (sec) => {

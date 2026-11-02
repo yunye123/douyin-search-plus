@@ -76,8 +76,8 @@
     ui.tick = (ui.tick || 0) + 1;
     // 列表页还没挂上工具栏（识别中）才需要每秒重画；视频页、精选页没有工具栏，不必每秒重画（注水前除外）
     const onList = S.route.type === 'search' || S.route.type === 'profile';
-    // 评论区该出现却还没有列表：每秒看一次，6 秒后才能换成「读不到」，列表回来也要马上撤掉
-    const commentWatch = ui.commentMiss || ((S.route.type === 'video' || !!S.route.modalId) && !A.commentList());
+    // 评论已经出现或已经读到、列表却还没有：每秒看一次，6 秒后才能换成「读不到」，列表回来也要马上撤掉
+    const commentWatch = ui.commentMiss || (commentsExpected() && !A.commentList());
     if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || commentWatch || ui.tick % 5 === 0) schedule();
   }
 
@@ -425,10 +425,12 @@
         onTier: (k) => onTier(k),
         sortShort: lens ? lens.label : sorted ? S.view.sortKeys.map((k) => M.METRICS[k].label).join('+') + (S.view.asc ? ' ↑' : '') : '',
       };
-      // 主页：账号作品总数（"已读取 18 / 60 条"）；真需求里有多少没过达标线（例如图文）
+      // 主页：账号作品总数（"已读取 18 / 60 条"）。
+      // 「另有 N 条真需求没过线」只给真需求这类看法：被「只看视频」挡住的图文。分档筛选本身就排除了 high 时不计。
       const works = type === 'profile' && S.profileStats ? S.profileStats.works : 0;
       const passSet = new Set(view.sorted.map((x) => x.v.id));
-      const excludedHigh = active ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
+      const tier = S.view.filter.tier;
+      const excludedHigh = active && !(tier && tier !== 'high') ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
       vm.status = P.statusLine({
         health, blocked, count: vm.count, total: works, strongNeed: tiers.high, sorted: active,
         shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh, noSort: !canSort,
@@ -474,10 +476,12 @@
   }
 
   // ---------------- 评论区 ----------------
-  // 视频页或带 modal_id 的弹层才该有评论列表。慢一点挂上不算失败，和搜索页一样等约 6 秒。
+  // 只有评论已经渲染，或这条视频的评论接口/fiber 已经到了，才算「该出现」。
+  // 精选信息流只带 modal_id、作者关评、0 评论、用户自己收起评论区，都不算失败。慢一点挂上仍等约 6 秒。
   function commentsExpected() {
-    const r = S.route;
-    return r.type === 'video' || !!r.modalId;
+    const r = S.route, C = S.comments, vid = r.modalId || r.awemeId || '';
+    if (!(r.type === 'video' || r.modalId)) return false;
+    return !!document.querySelector('[data-e2e="comment-item"]') || (C.awemeId === vid && C.map.size > 0);
   }
   function commentMissReady() {
     return commentsExpected() && hydrated() && Date.now() - ui.routeAt >= 6000;
