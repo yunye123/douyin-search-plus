@@ -18,6 +18,7 @@
     sr:      { label: '转发率', short: '转发率', kind: 'ratio', formula: '转发 ÷ 点赞', tip: '转发 ÷ 点赞。教程类常见 15%~27%；收藏率低而转发率高的多是猎奇内容' },
     er:      { label: '评论率', short: '评论率', kind: 'ratio', formula: '评论 ÷ 点赞', tip: '评论 ÷ 点赞。越高说明越能引发讨论；先看评论是求助还是灌水再下结论' },
     dpd:     { label: '日均赞', short: '日均赞', kind: 'rate', formula: '点赞 ÷ 发布天数', tip: '点赞 ÷ 发布天数。衡量涨得多快，用来发现正在起飞的新视频' },
+    createTime: { label: '发布时间', short: '发布', kind: 'time', tip: '发布时间。新的在前；没有发布时间的排在最后' },
   };
 
   // 由原始记录算出派生指标
@@ -74,7 +75,9 @@
   function sortValue(v, k) {
     if (v[k] == null) return -1e15; // 拿不到的数排在最后
     const x = v[k];
-    if (METRICS[k] && METRICS[k].kind === 'ratio' && v.lowSample) return x - 1e6;
+    const meta = METRICS[k];
+    if (meta && meta.kind === 'time' && !(x > 0)) return -1e15; // 没有发布时间的沉底
+    if (meta && meta.kind === 'ratio' && v.lowSample) return x - 1e6;
     return x;
   }
 
@@ -112,7 +115,7 @@
     }
     if (ascending) {
       // 倒序只翻转"可靠"的那部分：样本少（比率类）和缺数据的始终排在最后，不能因为倒序冲到第一
-      const unreliable = (v) => ks.some((k) => v[k] == null || (METRICS[k].kind === 'ratio' && v.lowSample));
+      const unreliable = (v) => ks.some((k) => v[k] == null || (METRICS[k].kind === 'time' && !(v[k] > 0)) || (METRICS[k].kind === 'ratio' && v.lowSample));
       const good = items.filter((it) => !unreliable(it.v)).reverse();
       const bad = items.filter((it) => unreliable(it.v));
       return good.concat(bad);
@@ -194,12 +197,13 @@
     };
   }
 
-  // 收藏率分档（作者选题库 SOP 的判读口径）：
-  //   high ≥80% 真需求 · mid 40%~80% 一般 · low 10%~40% 有门槛 · show <10% 展示型 · na 点赞太少不评
+  // 收藏率分档（作者选题库 SOP 的判读口径）。区间文案与 crTier 的比较符同一套：
+  //   high ≥80% 真需求 · mid 大于 40% 且小于 80% 一般 · low 10% 到 40%（含）有门槛 · show <10% 展示型 · na 点赞 <100 样本少
+  // 正好 40% 是有门槛（cr > 0.4 才是一般），不要写成两端都含的「40%~80%」。
   const CR_TIERS = {
     high: { label: '真需求', range: '≥80%' },
-    mid:  { label: '一般', range: '40%~80%' },
-    low:  { label: '有门槛', range: '10%~40%' },
+    mid:  { label: '一般', range: '>40% 且 <80%' },
+    low:  { label: '有门槛', range: '10%～40%（含）' },
     show: { label: '展示型', range: '<10%' },
     na:   { label: '样本少', range: '点赞<' + RATIO_MIN_DIGG },
   };

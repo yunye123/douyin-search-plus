@@ -28,6 +28,9 @@ test('搜索页：工具栏出现、卡片上有收藏率标签', async ({ page 
   const s = await state(page);
   expect(s.ui.docked).toBe(true);
   expect(s.ui.health).toBe('ok');
+  const labels = await page.locator('.dsp-ann .lbl').allTextContents();
+  expect(labels.length).toBeGreaterThan(0);
+  for (const t of labels) expect(['真需求', '一般', '有门槛', '展示型']).toContain(t);
   expect(page.errors).toEqual([]);
 });
 
@@ -850,4 +853,117 @@ test('视频弹层里评论列表自己就是滚动框：点「加载全部」�
   await dsp(page, 'c-load').click();
   await until(page, (x) => x.comments.count >= 60, { timeout: 30000, label: '弹层评论继续加载' });
   expect(await page.evaluate(() => scrollY)).toBe(0); // 背后的搜索页不动
+});
+
+test('搜索和主页都有最新发布、传播型、收藏最多、有门槛', async ({ page, ext }) => {
+  await page.goto(urls.search('新看法'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  await dsp(page, 'sort').click();
+  const searchKeys = await page.locator('[data-lens]').evaluateAll((els) => els.map((e) => e.dataset.lens));
+  expect(searchKeys).toEqual(['need', 'ratio', 'rising', 'talk', 'newest', 'spread', 'mostSaved', 'barrier']);
+  await page.locator('[data-lens="newest"]').click();
+  const newest = await until(page, (x) => x.view.sortKeys.join() === 'createTime' && x.sortedIds.length > 0);
+  const times = newest.sortedIds.map((id) => ext.sim.registry.get(id).createTime);
+  for (let i = 1; i < times.length; i++) expect(times[i]).toBeLessThanOrEqual(times[i - 1]);
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="spread"]').click();
+  await until(page, (x) => x.view.sortKeys.join() === 'sr');
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="mostSaved"]').click();
+  const saved = await until(page, (x) => x.view.sortKeys.join() === 'collect' && !x.view.filter.minCr);
+  const collects = saved.sortedIds.map((id) => ext.sim.registry.get(id).collect);
+  for (let i = 1; i < collects.length; i++) expect(collects[i]).toBeLessThanOrEqual(collects[i - 1]);
+  await dsp(page, 'sort').click();
+  await page.locator('[data-lens="barrier"]').click();
+  const barrier = await until(page, (x) => x.view.filter.tier === 'low' && x.view.sortKeys.join() === 'comment');
+  expect(await dsp(page, 'filter').locator('.count').textContent()).toBe('');
+  const comments = [];
+  for (const id of barrier.sortedIds) {
+    const v = ext.sim.registry.get(id);
+    expect(v.digg).toBeGreaterThanOrEqual(100);
+    const cr = v.collect / v.digg;
+    expect(cr).toBeGreaterThanOrEqual(0.1);
+    expect(cr).toBeLessThanOrEqual(0.4);
+    comments.push(v.comment);
+  }
+  for (let i = 1; i < comments.length; i++) expect(comments[i]).toBeLessThanOrEqual(comments[i - 1]);
+
+  await page.goto(urls.profile());
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 10);
+  await dsp(page, 'sort').click();
+  const profileKeys = await page.locator('[data-lens]').evaluateAll((els) => els.map((e) => e.dataset.lens));
+  expect(profileKeys).toEqual(['need', 'ratio', 'rising', 'talk', 'top10', 'newest', 'spread', 'mostSaved', 'barrier']);
+});
+
+test('评论区可以按时间排序，新的在前；按赞和按回复还在', async ({ page }) => {
+  await page.goto(urls.video('7499999999999990021'));
+  await ready(page);
+  await expect(page.locator('[data-cmode="digg"]')).toHaveText('按赞');
+  await expect(page.locator('[data-cmode="replies"]')).toHaveText('按回复');
+  await expect(page.locator('[data-cmode="time"]')).toHaveText('按时间');
+  await page.locator('[data-cmode="time"]').click();
+  await expect.poll(async () => page.evaluate(() => {
+    const rows = [...document.querySelector('[data-e2e="comment-list"]').children].filter((r) => r.querySelector('[data-e2e="comment-item"]'));
+    if (rows.length < 5) return false;
+    const timeOf = (row) => {
+      const item = row.querySelector('[data-e2e="comment-item"]');
+      const k = Object.keys(item).find((x) => x.startsWith('__reactFiber'));
+      const info = k && item[k] && item[k].return && item[k].return.memoizedProps && item[k].return.memoizedProps.commentInfo;
+      return info ? info.createTime || 0 : 0;
+    };
+    const ordered = rows.slice().sort((a, b) => (+a.style.order || 0) - (+b.style.order || 0));
+    const times = ordered.map(timeOf);
+    if (times.some((t) => !(t > 0))) return false;
+    for (let i = 1; i < times.length; i++) if (times[i] > times[i - 1]) return false;
+    return ordered[0].style.order === '1';
+  }), { timeout: 8000 }).toBe(true);
+});
+
+test('评论列表选择器缺失时说明读不到，并可复制诊断', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.video('7499999999999990021') + '?nocomment=1');
+  await ready(page);
+  await expect(page.locator('[data-dsp="launcher"]')).toContainText('评论区读不到', { timeout: 15000 });
+  await expect(page.locator('#dsp-cbar')).toHaveCount(0);
+  await page.locator('[data-dsp="launcher"]').click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('"commentItems"');
+});
+
+test('候选篮表格预览能看到收藏率、分档和赞藏，并标明范围', async ({ page, ext }) => {
+  await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
+  await page.goto(urls.search('预览列'));
+  await ready(page);
+  await dismissCoach(page);
+  const add = async (n) => { const c = page.locator('#search-result-container li').nth(n); await c.hover(); await c.locator('.dsp-ann .cand').click(); };
+  await add(0);
+  await add(1);
+  await until(page, (x) => x.candidates.length === 2);
+  await dsp(page, 'basket').click();
+  await expect(page.locator('.bk-tab-hint')).toContainText('即将复制的内容');
+  await expect(page.locator('.bk-tab-hint')).toContainText('全部候选');
+  await page.locator('[data-tab="tsv"]').click();
+  await expect(page.locator('.bk-tab-hint')).toHaveText('全部候选');
+  const preText = () => page.locator('.bk-pre').evaluate((el) => el.textContent);
+  const header = (await preText()).split('\n')[0];
+  expect(header).toContain('原标题');
+  expect(header).toContain('赞');
+  expect(header).toContain('藏');
+  expect(header).toContain('收藏率');
+  expect(header).toContain('分档');
+  expect(header).not.toContain('时长');
+  expect(header).not.toContain('类型');
+  await page.locator('[data-tab="md"]').click();
+  await dsp(page, 'copy-md').click();
+  await page.keyboard.press('Escape');
+  await add(2);
+  await until(page, (x) => x.candidates.length === 3);
+  await dsp(page, 'basket').click();
+  await expect(page.locator('.bk-tab-hint')).toHaveText('即将复制的 1 条');
+  await expect(page.locator('.bk-pre')).toContainText('# 选题候选 · 1 条');
+  await page.locator('[data-tab="tsv"]').click();
+  await expect(page.locator('.bk-tab-hint')).toHaveText('全部候选');
+  expect((await preText()).trim().split('\n').length).toBe(4);
 });

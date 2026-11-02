@@ -9,7 +9,9 @@
 
   const TIER_ORDER = ['high', 'mid', 'low', 'show', 'na'];
   const TIER_NAME = { high: '真需求', mid: '一般', low: '有门槛', show: '展示型', na: '样本少' };
-  const TIER_RANGE = { high: '≥80%', mid: '40%~80%', low: '10%~40%', show: '<10%', na: '点赞<100' };
+  // 与 crTier / CR_TIERS.range 同一边界，不在这里另写一套
+  const TIER_RANGE = {};
+  for (const k of TIER_ORDER) TIER_RANGE[k] = M.CR_TIERS[k].range;
 
   // ---------------- 工具栏 ----------------
   function buildBar(api) {
@@ -143,7 +145,7 @@
   }
 
   // ---------------- 排序弹层 ----------------
-  const LENS_ICON = { need: 'star', ratio: 'layers', rising: 'arrowUp', talk: 'comment', top10: 'table' };
+  const LENS_ICON = { need: 'star', ratio: 'layers', rising: 'arrowUp', talk: 'comment', top10: 'table', newest: 'clock', spread: 'share', mostSaved: 'heart', barrier: 'warn' };
   function sortPanel(vm, api) {
     const panel = h('div', { class: 'pop-sort' });
     panel.appendChild(h('div', { class: 'pop-h' }, '选题看法'));

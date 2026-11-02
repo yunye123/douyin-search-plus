@@ -355,6 +355,8 @@ if (/[?&]fiber=detail/.test(location.search)) xhrJson('/sim/detail-fiber?aweme_i
 else if (!/[?&]nodetail=1/.test(location.search)) xhrJson('/aweme/v1/web/aweme/detail/?aweme_id=' + S.aid);
 S.cursor = 0; S.hasMore = 1; S.loading = false;
 const list = document.querySelector('[data-e2e="comment-list"]');
+// ?nocomment=1：列表还在，但抖音改掉了评论列表的 data-e2e。插件只能认这一个选择器，应说「评论区读不到」。
+if (/[?&]nocomment=1/.test(location.search) && list) list.removeAttribute('data-e2e');
 const side = document.querySelector('.sim-vside');
 const HEART = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z"/></svg>';
 function addComment(c) {

@@ -70,6 +70,14 @@ test('评论门槛词：命中具体说法', () => {
   assert.deepEqual(E.barrierHits('全是英文看不懂'), ['hard', 'english']); // 一条评论可以同时命中多类
   assert.deepEqual(E.barrierHits('求链接！在哪下载'), ['ask']);
   assert.deepEqual(E.barrierHits('VPN 才能用吗'), ['access']);
+  assert.deepEqual(E.barrierHits('要钱吗'), ['cost']);
+  assert.deepEqual(E.barrierHits('这也要钱'), ['cost']);
+  assert.deepEqual(E.barrierHits('需要会员'), ['cost']);
+  assert.deepEqual(E.barrierHits('先去开会员'), ['cost']);
+  assert.deepEqual(E.barrierHits('充值吗'), ['cost']);
+  assert.deepEqual(E.barrierHits('要充值'), ['cost']);
+  assert.deepEqual(E.barrierHits('国内用不了'), ['access']);
+  assert.deepEqual(E.barrierHits('国内能用吗'), ['access']);
   const s = E.barrierStats([{ text: '多少钱' }, { text: '太贵了' }, { text: '全是英文' }, { text: '安装不了' }]);
   assert.equal(s.cost, 2);
   assert.equal(s.english, 1);
@@ -77,7 +85,7 @@ test('评论门槛词：命中具体说法', () => {
 });
 
 test('评论门槛词：泛用说法不误报', () => {
-  for (const t of ['讲得真好', '求关注', '怎么这么好用', '英文歌好听', '已关注，求出下一期', '这个教程太棒了', '讲得比付费课还好', '开了会员也学不到这么多']) {
+  for (const t of ['讲得真好', '求关注', '怎么这么好用', '英文歌好听', '已关注，求出下一期', '这个教程太棒了', '讲得比付费课还好', '开了会员也学不到这么多', '不要钱', '不要会员', '不想开会员', '不用充值', '不充值', '充值', '国内能用']) {
     assert.deepEqual(E.barrierHits(t), [], t);
   }
 });
@@ -157,4 +165,27 @@ test('交给过、之后没变化的条目再导出时也注明，Agent 不会�
   // 从没交给过的：不写
   const fresh = Object.assign({}, w, { copiedAt: 0 });
   assert.ok(!E.toMarkdown([fresh], { now: NOW }).includes('已交给过'));
+});
+
+test('候选篮日均赞钉在采集时，导出更晚也不变', () => {
+  const St = require('../../src/content/store.js');
+  const capturedAt = 1_700_000_000;
+  const createTime = capturedAt - 2 * 86400;
+  const id = '7400000000000000099';
+  St.setRoute(St.routeOf({ pathname: '/search/dpd', search: '' }));
+  St.intakeVideos({ kw: 'dpd' }, [{ id, kind: 'video', desc: '快照', author: 'x', digg: 200, comment: 1, collect: 20, share: 1, createTime }]);
+  assert.equal(St.addCandidate(id), true);
+  const cand = St.S.candidates.get(id);
+  cand.rec.capturedAt = capturedAt;
+  cand.rec.createTime = createTime;
+  cand.rec.digg = 200;
+  const row = St.candidateList().find((c) => c.id === id);
+  assert.equal(row.dpd, 100);
+  assert.equal(M.fmtDn(row.dn), 'D+2');
+  const later = capturedAt + 400 * 86400;
+  assert.notEqual(Math.round(M.derive(cand.rec, later).dpd), 100);
+  const md = E.toMarkdown([row], { now: later });
+  assert.ok(md.includes('有热度看：赞 200 · 日均赞 100'));
+  assert.ok(md.includes('D+2'));
+  assert.ok(!md.includes('D+402'));
 });

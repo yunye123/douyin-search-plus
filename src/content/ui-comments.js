@@ -1,5 +1,5 @@
 // 评论区工具条：插在评论列表上方、在评论区里吸顶。
-// 排序（默认 / 按赞 / 按回复）、加载全部、门槛词诊断（点一格高亮对应评论，可逐条跳转、复制原文）。
+// 排序（默认 / 按赞 / 按回复 / 按时间）、加载全部、门槛词诊断（点一格高亮对应评论，可逐条跳转、复制原文）。
 (() => {
   'use strict';
   const DSP = (globalThis.DSP = globalThis.DSP || {});
@@ -14,7 +14,7 @@
     box.appendChild(els.video);
     const top = h('div', { class: 'cb-top' });
     els.seg = h('div', { class: 'seg-ctl', role: 'group', 'aria-label': '评论排序' });
-    for (const [k, label, tip] of [['', '默认', '抖音原本的顺序'], ['digg', '按赞', '点赞多的在前：大家最认同的说法'], ['replies', '按回复', '回复多的在前：卡点和争议通常在这里（选题 SOP 推荐）']]) {
+    for (const [k, label, tip] of [['', '默认', '抖音原本的顺序'], ['digg', '按赞', '点赞多的在前：大家最认同的说法'], ['replies', '按回复', '回复多的在前：卡点和争议通常在这里（选题 SOP 推荐）'], ['time', '按时间', '最新的评论在前']]) {
       const b = h('button', { type: 'button', 'data-cmode': k || 'none', onclick: () => api.setMode(k || null) }, label);
       bindTip(b, () => ({ title: label, body: tip }), api.layer());
       els.seg.appendChild(b);

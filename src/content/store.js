@@ -409,10 +409,12 @@
     persistCandidates();
     ev.emit('candidates');
   }
-  // 候选篮里的记录：派生指标按"采集时"计算（D+N 与比率对应同一时刻）
+  // 候选篮里的记录：派生指标按采集时刻计算。日均赞和 D+N 用同一个窗口（capturedAt），
+  // 不跟「现在」走——赞数是快照，年龄若按导出当天算，入库包里的日均赞会系统性变小。
+  // 页面上的活数据仍用当前时间（derived()），只有篮子里的快照钉在采集时。
   function candidateList() {
     const t = now();
-    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, t), { addedAt: c.addedAt, source: c.source, srcType: c.srcType, extra: c.extra || null, copiedAt: c.copiedAt || 0,
+    return [...S.candidates.values()].map((c) => Object.assign(M.derive(c.rec, c.rec.capturedAt || t), { addedAt: c.addedAt, source: c.source, srcType: c.srcType, extra: c.extra || null, copiedAt: c.copiedAt || 0,
       updatedAt: c.updatedAt || 0, updateNote: c.updateNote || '', fresh: isFresh(c) }));
   }
 

@@ -76,7 +76,9 @@
     ui.tick = (ui.tick || 0) + 1;
     // 列表页还没挂上工具栏（识别中）才需要每秒重画；视频页、精选页没有工具栏，不必每秒重画（注水前除外）
     const onList = S.route.type === 'search' || S.route.type === 'profile';
-    if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || ui.tick % 5 === 0) schedule();
+    // 评论区该出现却还没有列表：每秒看一次，6 秒后才能换成「读不到」，列表回来也要马上撤掉
+    const commentWatch = ui.commentMiss || ((S.route.type === 'video' || !!S.route.modalId) && !A.commentList());
+    if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || commentWatch || ui.tick % 5 === 0) schedule();
   }
 
   // ---------------- 总开关 ----------------
@@ -253,7 +255,10 @@
     if (type === 'search' || type === 'profile') listState = updateList(type);
     else { removeDock(); ui.lastHealth = ''; } // 离开列表页：读取状态清掉，不沿用上一个列表页的
     updateComments();
-    renderLauncher(listState && !listState.docked ? listState.health : null);
+    const listLaunch = listState && !listState.docked ? listState.health : null;
+    // 搜索读不到、被登录墙拦住优先于评论区失败
+    const launch = (listLaunch === 'fail' || listLaunch === 'blocked') ? listLaunch : (ui.commentMiss ? 'comment-miss' : listLaunch);
+    renderLauncher(launch);
     renderGuide(listState && listState.health);
   }
 
@@ -443,11 +448,12 @@
   function renderLauncher(state) {
     // state：null（不需要）| 'recognizing' | 'fail' | 'blocked' | 'paused' | 'stale'
     // "识别中"不弹启动器（每次进页面都会闪一下）；只在读不到、被拦、暂停、插件已更新时出现
-    const need = state && (state === 'paused' || state === 'stale' || ((S.route.type === 'search' || S.route.type === 'profile') && (state === 'fail' || state === 'blocked')));
+    const need = state && (state === 'paused' || state === 'stale' || state === 'comment-miss' || ((S.route.type === 'search' || S.route.type === 'profile') && (state === 'fail' || state === 'blocked')));
     if (!need) { if (ui.launcher) { ui.launcher.remove(); ui.launcher = null; } return; }
     const text = {
       recognizing: ['正在读取结果…', ''],
       fail: ['读不到结果：抖音页面可能刚更新', '复制诊断信息'],
+      'comment-miss': ['评论区读不到', '复制诊断信息'],
       blocked: ['抖音要求登录或验证，处理后会自动恢复', ''],
       paused: ['插件已暂停 · 点击恢复', ''],
       stale: ['插件已更新，请刷新页面', '刷新'],
@@ -459,7 +465,7 @@
       onclick: () => {
         if (state === 'paused') { setEnabled(true); announce('插件已恢复'); }
         else if (state === 'stale') location.reload();
-        else if (state === 'fail') copyDiagnostics(btn);
+        else if (state === 'fail' || state === 'comment-miss') copyDiagnostics(btn);
       } },
     kit.logo(26), h('span', { class: 'l-tx' }, h('b', null, text[0]), text[1] ? h('span', null, text[1]) : null));
     btn.dataset.sig = sig;
@@ -468,6 +474,14 @@
   }
 
   // ---------------- 评论区 ----------------
+  // 视频页或带 modal_id 的弹层才该有评论列表。慢一点挂上不算失败，和搜索页一样等约 6 秒。
+  function commentsExpected() {
+    const r = S.route;
+    return r.type === 'video' || !!r.modalId;
+  }
+  function commentMissReady() {
+    return commentsExpected() && hydrated() && Date.now() - ui.routeAt >= 6000;
+  }
   function updateComments() {
     const list = A.commentList();
     if (!list) {
@@ -475,8 +489,10 @@
       if (CE.state.applied) CE.restore();
       if (commentLoader.running) commentLoader.stop('route'); // 评论区收起或换了面板：停，绝不替用户滚页面
       observeComments(null);
+      ui.commentMiss = commentMissReady();
       return;
     }
+    ui.commentMiss = false;
     if (!hydrated()) return;
     observeComments(list);
     ui.cbar = host('dsp-cbar', list.parentElement, list);
@@ -907,7 +923,7 @@
 .l-tx { display: flex; flex-direction: column; }
 .l-tx b { font: 600 13px/20px var(--font); }
 .l-tx span { color: var(--cyan-text); font-size: 12px; line-height: 18px; }
-.l-fail .l-tx b, .l-blocked .l-tx b { color: var(--tier-low-text); }
+.l-fail .l-tx b, .l-blocked .l-tx b, .l-comment-miss .l-tx b { color: var(--tier-low-text); }
 .l-paused { opacity: .85; }
 .l-paused .dsp-logo { filter: grayscale(1); opacity: .6; }
 .l-recognizing .l-tx b { color: var(--t3); }
