@@ -954,6 +954,18 @@ test('精选弹层没打开评论时，不报评论区读不到', async ({ page 
   await expect(page.locator('[data-dsp="launcher"]')).toHaveCount(0);
 });
 
+test('收起评论区不算读不到', async ({ page }) => {
+  await page.goto(urls.video('7499999999999990021'));
+  await ready(page);
+  await until(page, (x) => x.comments.count >= 10);
+  await expect(page.locator('#dsp-cbar')).toBeVisible();
+  await page.waitForTimeout(6500);
+  await expect(page.locator('[data-dsp="launcher"]')).toHaveCount(0);
+  await page.evaluate(() => document.querySelector('[data-e2e="comment-list"]').remove());
+  await page.waitForTimeout(7000);
+  await expect(page.locator('[data-dsp="launcher"]')).toHaveCount(0);
+});
+
 test('评论列表选择器缺失时说明读不到，并可复制诊断', async ({ page, ext }) => {
   await ext.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'https://www.douyin.com' });
   await page.goto(urls.video('7499999999999990021') + '?nocomment=1');

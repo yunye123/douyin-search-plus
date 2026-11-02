@@ -77,6 +77,12 @@ test('评论门槛词：命中具体说法', () => {
   assert.deepEqual(E.barrierHits('先去开会员'), ['cost']);
   assert.deepEqual(E.barrierHits('充值吗'), ['cost']);
   assert.deepEqual(E.barrierHits('要充值'), ['cost']);
+  assert.deepEqual(E.barrierHits('要付费'), ['cost']);
+  assert.deepEqual(E.barrierHits('需要付费'), ['cost']);
+  assert.deepEqual(E.barrierHits('要收费'), ['cost']);
+  assert.deepEqual(E.barrierHits('要积分'), ['cost']);
+  assert.deepEqual(E.barrierHits('会员才'), ['cost']);
+  assert.deepEqual(E.barrierHits('不收费吗'), ['cost']);
   assert.deepEqual(E.barrierHits('国内用不了'), ['access']);
   assert.deepEqual(E.barrierHits('国内能用吗'), ['access']);
   const s = E.barrierStats([{ text: '多少钱' }, { text: '太贵了' }, { text: '全是英文' }, { text: '安装不了' }]);
@@ -86,7 +92,7 @@ test('评论门槛词：命中具体说法', () => {
 });
 
 test('评论门槛词：泛用说法不误报', () => {
-  for (const t of ['讲得真好', '求关注', '怎么这么好用', '英文歌好听', '已关注，求出下一期', '这个教程太棒了', '讲得比付费课还好', '开了会员也学不到这么多', '不要钱', '不要会员', '不想开会员', '不用充值', '不充值', '充值', '国内能用', '不需要钱', '不需要会员', '不用开会员', '没开会员也能用', '不需要充值', '不用要钱']) {
+  for (const t of ['讲得真好', '求关注', '怎么这么好用', '英文歌好听', '已关注，求出下一期', '这个教程太棒了', '讲得比付费课还好', '开了会员也学不到这么多', '不要钱', '不要会员', '不想开会员', '不用充值', '不充值', '充值', '国内能用', '不需要钱', '不需要会员', '不用开会员', '没开会员也能用', '不需要充值', '不用要钱', '不需要付费', '不要积分', '免费不要积分', '不需要会员才能用']) {
     assert.deepEqual(E.barrierHits(t), [], t);
   }
 });

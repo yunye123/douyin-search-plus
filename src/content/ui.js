@@ -18,6 +18,8 @@
     launcher: null, guide: null,
     listEl: null, strategy: '',
     routeAt: Date.now(),
+    commentListFor: '',       // 这条视频的评论列表曾经认出来过；之后消失是收起，不是选择器失效
+    commentEvidenceAt: 0,     // 评论证据第一次出现的时刻；6 秒宽限从这里起算，不从进路由起算
     combo: false,
     pop: null,                    // 当前打开的弹层 { kind, anchor, panel }
     rendered: '',
@@ -50,7 +52,12 @@
     r.el.dataset.theme = A.pageTheme();
     for (const ev of ['data', 'view', 'candidates', 'settings', 'comments', 'session']) store.on(ev, schedule);
     // 换页面 / 换视频：评论区的排序和变暗一起还原（不只是清掉工具条上的状态）
-    store.on('route', () => { ui.routeAt = Date.now(); stopLoaders('route'); closePop(); C.hideDetail(true); if (CE.state.applied) CE.restore(); CE.state.mode = null; CE.state.highlight = null; schedule(); });
+    store.on('route', () => {
+      ui.routeAt = Date.now();
+      ui.commentListFor = '';
+      ui.commentEvidenceAt = 0;
+      stopLoaders('route'); closePop(); C.hideDetail(true); if (CE.state.applied) CE.restore(); CE.state.mode = null; CE.state.highlight = null; schedule();
+    });
     store.on('settings', (p) => { if (p && p.enabledChanged) applyEnabled(); });
     setInterval(() => U.trap('ui.watch', watchdog), 1000);
     document.addEventListener('keydown', (e) => {
@@ -477,17 +484,24 @@
 
   // ---------------- 评论区 ----------------
   // 只有评论已经渲染，或这条视频的评论接口/fiber 已经到了，才算「该出现」。
-  // 精选信息流只带 modal_id、作者关评、0 评论、用户自己收起评论区，都不算失败。慢一点挂上仍等约 6 秒。
+  // 精选信息流只带 modal_id、作者关评、0 评论，都不算失败。
+  // 列表曾经认出来过、后来消失，是用户收起，也不是失败；除非评论行还在页面上（选择器对不上）。
+  // 6 秒宽限从证据第一次出现起算，不从进路由起算，避免进页很久后才打开评论时闪一下失败。
   function commentsExpected() {
     const r = S.route, C = S.comments, vid = r.modalId || r.awemeId || '';
     if (!(r.type === 'video' || r.modalId)) return false;
-    return !!document.querySelector('[data-e2e="comment-item"]') || (C.awemeId === vid && C.map.size > 0);
+    const items = !!document.querySelector('[data-e2e="comment-item"]');
+    if (ui.commentListFor === vid) return items;
+    return items || (C.awemeId === vid && C.map.size > 0);
   }
   function commentMissReady() {
-    return commentsExpected() && hydrated() && Date.now() - ui.routeAt >= 6000;
+    if (!commentsExpected()) return false;
+    if (!ui.commentEvidenceAt) ui.commentEvidenceAt = Date.now();
+    return hydrated() && Date.now() - ui.commentEvidenceAt >= 6000;
   }
   function updateComments() {
     const list = A.commentList();
+    const vid = S.route.modalId || S.route.awemeId || '';
     if (!list) {
       if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
       if (CE.state.applied) CE.restore();
@@ -496,6 +510,8 @@
       ui.commentMiss = commentMissReady();
       return;
     }
+    ui.commentListFor = vid;
+    ui.commentEvidenceAt = 0;
     ui.commentMiss = false;
     if (!hydrated()) return;
     observeComments(list);
@@ -526,7 +542,6 @@
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
     ui.commentStatsBase = all.length || rows.length; // 门槛词是按多少条统计的
     const m = commentMeta();
-    const vid = S.route.modalId || S.route.awemeId || '';
     const raw = store.findVideo(vid);
     const video = raw ? M.derive(raw, Date.now() / 1000) : null;
     const cand = S.candidates.get(vid);
