@@ -1,4 +1,4 @@
-// 评论区引擎：把页面上的每条评论对到数据（点赞、回复数），按赞 / 按回复排序，按门槛词高亮。
+// 评论区引擎：把页面上的每条评论对到数据（点赞、回复数、时间），按赞 / 按回复 / 按时间排序，按门槛词高亮。
 // 排序只改视觉顺序（CSS order），随时一键还原。
 // 对数据的优先级：数据桥盖的章（fiber）→ 接口数据按正文配对 → 页面上显示的点赞数。
 (() => {
@@ -41,6 +41,7 @@
         cid: stampCid,
         digg: Number(it.getAttribute('data-dsp-digg')) || (c ? c.digg : 0),
         replies: Number(it.getAttribute('data-dsp-replies')) || (c ? c.replies : 0),
+        createTime: c ? c.createTime || 0 : 0,
         text: c ? c.text : '',
         source: 'fiber',
       };
@@ -62,7 +63,7 @@
               const same = shown != null && free.find((x) => x.digg === shown);
               if (same) c = same;
             }
-            data = { cid: c.cid, digg: c.digg, replies: c.replies, text: c.text, source: 'api' };
+            data = { cid: c.cid, digg: c.digg, replies: c.replies, createTime: c.createTime || 0, text: c.text, source: 'api' };
             break;
           }
         }
@@ -70,7 +71,7 @@
     }
     if (!data) {
       const d = A.domCommentDigg(it);
-      data = { cid: '', digg: d == null ? -1 : d, replies: 0, text: '', source: 'dom' };
+      data = { cid: '', digg: d == null ? -1 : d, replies: 0, createTime: 0, text: '', source: 'dom' };
     }
     if (data.cid) used.add(data.cid);
     rowCache.set(row.el, { sig, data });
@@ -79,7 +80,7 @@
 
   const state = { mode: null, highlight: null, applied: false, list: null };
 
-  // mode: 'digg' | 'replies' | null（还原）；highlight: 门槛词组 key 或 null
+  // mode: 'digg' | 'replies' | 'time' | null（还原）；highlight: 门槛词组 key 或 null
   function apply() {
     const list = A.commentList();
     if (!list) return { rows: 0 };
@@ -92,8 +93,11 @@
       return { r, i, d, hit: state.highlight ? E.barrierHits(text).includes(state.highlight) : false };
     });
     if (state.mode) {
-      const key = state.mode === 'replies' ? 'replies' : 'digg';
-      const sorted = scored.slice().sort((a, b) => (b.d[key] - a.d[key]) || (b.d.digg - a.d.digg) || (a.i - b.i));
+      const sorted = scored.slice().sort((a, b) => {
+        if (state.mode === 'time') return ((b.d.createTime || 0) - (a.d.createTime || 0)) || (b.d.digg - a.d.digg) || (a.i - b.i);
+        const key = state.mode === 'replies' ? 'replies' : 'digg';
+        return (b.d[key] - a.d[key]) || (b.d.digg - a.d.digg) || (a.i - b.i);
+      });
       list.classList.add('dsp-flowcol');
       sorted.forEach((s, n) => { const v = String(n + 1); if (s.r.el.style.order !== v) s.r.el.style.order = v; });
     } else {
@@ -132,8 +136,11 @@
     const vid = r.modalId || r.awemeId || '';
     if (vid && C.awemeId !== vid) return []; // 不是当前这条视频的评论
     const list = [...C.map.values()];
-    const key = state.mode === 'replies' ? 'replies' : 'digg';
-    list.sort((a, b) => (b[key] - a[key]) || (b.digg - a.digg));
+    if (state.mode === 'time') list.sort((a, b) => ((b.createTime || 0) - (a.createTime || 0)) || (b.digg - a.digg));
+    else {
+      const key = state.mode === 'replies' ? 'replies' : 'digg';
+      list.sort((a, b) => (b[key] - a[key]) || (b.digg - a.digg));
+    }
     return list;
   }
 

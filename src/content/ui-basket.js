@@ -6,8 +6,18 @@
   const U = DSP.util, M = DSP.metrics, E = DSP.exporter;
 
   const st = { tab: 'md' };
+  const PREVIEW_COLS = [['原标题', '原标题'], ['点赞', '赞'], ['收藏', '藏'], ['收藏率', '收藏率'], ['收藏率分档', '分档']];
 
   function ago(ts) { return U.fmtAgo(ts); }
+
+  function tsvPreview(list) {
+    const idx = PREVIEW_COLS.map(([name]) => E.COLUMNS.findIndex((c) => c[0] === name));
+    return E.toTsv(list).split('\n').map((r, i) => {
+      if (i === 0) return PREVIEW_COLS.map(([, label]) => label).join('  │  ');
+      const cells = r.split('\t');
+      return idx.map((j) => cells[j]).join('  │  ');
+    }).join('\n');
+  }
 
   function item(c, api) {
     const tier = M.crTier(c);
@@ -62,18 +72,29 @@
     list.slice().reverse().forEach((c) => ul.appendChild(item(c, api)));
     box.appendChild(ul);
 
-    // 预览：复制前先看一眼
+    // 预览：复制前先看一眼。入库包是即将复制的子集；表格复制的是全部候选，两处范围分开写。
+    // 表格优先看判断列（收藏率、分档、赞、藏），不拿时长和类型占位置。
     const tabs = h('div', { class: 'bk-tabs', role: 'group', 'aria-label': '预览格式' });
     const pre = h('pre', { class: 'bk-pre', tabindex: '0', 'aria-label': '预览：入库包' });
+    const hint = h('span', { class: 'bk-tab-hint' });
+    const freshList = list.filter((c) => c.fresh);
     const renderPre = () => {
-      pre.textContent = st.tab === 'md' ? api.markdown() : E.toTsv(list).split('\n').map((r) => r.split('\t').slice(1, 8).join('  │  ')).join('\n');
-      pre.setAttribute('aria-label', '预览：' + (st.tab === 'md' ? '入库包' : '表格'));
+      if (st.tab === 'md') {
+        pre.textContent = api.markdown();
+        const scope = !freshList.length || freshList.length === list.length ? '即将复制的内容 · 全部候选' : '即将复制的 ' + freshList.length + ' 条';
+        hint.textContent = scope;
+        pre.setAttribute('aria-label', '预览：入库包，' + scope);
+      } else {
+        pre.textContent = tsvPreview(list);
+        hint.textContent = '全部候选';
+        pre.setAttribute('aria-label', '预览：表格，全部候选');
+      }
       for (const b of tabs.querySelectorAll('.bk-tab')) { const on = b.dataset.tab === st.tab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on ? 'true' : 'false'); }
     };
     for (const [k, label] of [['md', '入库包'], ['tsv', '表格']]) {
       tabs.appendChild(h('button', { class: 'bk-tab', type: 'button', 'data-tab': k, onclick: () => { st.tab = k; renderPre(); } }, label));
     }
-    tabs.appendChild(h('span', { class: 'bk-tab-hint' }, '复制前先看一眼'));
+    tabs.appendChild(hint);
     box.append(tabs, pre);
     renderPre();
 

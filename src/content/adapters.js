@@ -89,6 +89,7 @@
   }
 
   // ---------- 评论 ----------
+  // 评论列表只有这一个选择器。对不上就说读不到，不去猜另一个容器。
   function commentList() {
     return document.querySelector('[data-e2e="comment-list"]');
   }

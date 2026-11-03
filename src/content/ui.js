@@ -18,6 +18,8 @@
     launcher: null, guide: null,
     listEl: null, strategy: '',
     routeAt: Date.now(),
+    commentListFor: '',       // 这条视频的评论列表曾经认出来过；之后消失是收起，不是选择器失效
+    commentEvidenceAt: 0,     // 评论证据第一次出现的时刻；6 秒宽限从这里起算，不从进路由起算
     combo: false,
     pop: null,                    // 当前打开的弹层 { kind, anchor, panel }
     rendered: '',
@@ -50,7 +52,12 @@
     r.el.dataset.theme = A.pageTheme();
     for (const ev of ['data', 'view', 'candidates', 'settings', 'comments', 'session']) store.on(ev, schedule);
     // 换页面 / 换视频：评论区的排序和变暗一起还原（不只是清掉工具条上的状态）
-    store.on('route', () => { ui.routeAt = Date.now(); stopLoaders('route'); closePop(); C.hideDetail(true); if (CE.state.applied) CE.restore(); CE.state.mode = null; CE.state.highlight = null; schedule(); });
+    store.on('route', () => {
+      ui.routeAt = Date.now();
+      ui.commentListFor = '';
+      ui.commentEvidenceAt = 0;
+      stopLoaders('route'); closePop(); C.hideDetail(true); if (CE.state.applied) CE.restore(); CE.state.mode = null; CE.state.highlight = null; schedule();
+    });
     store.on('settings', (p) => { if (p && p.enabledChanged) applyEnabled(); });
     setInterval(() => U.trap('ui.watch', watchdog), 1000);
     document.addEventListener('keydown', (e) => {
@@ -76,7 +83,9 @@
     ui.tick = (ui.tick || 0) + 1;
     // 列表页还没挂上工具栏（识别中）才需要每秒重画；视频页、精选页没有工具栏，不必每秒重画（注水前除外）
     const onList = S.route.type === 'search' || S.route.type === 'profile';
-    if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || ui.tick % 5 === 0) schedule();
+    // 评论已经出现或已经读到、列表却还没有：每秒看一次，6 秒后才能换成「读不到」，列表回来也要马上撤掉
+    const commentWatch = ui.commentMiss || (commentsExpected() && !A.commentList());
+    if (changed || ui.lastHealth === 'recognizing' || (onList && !ui.dock) || !hydrated() || listLoader.running || CE.state.mode || CE.state.highlight || commentWatch || ui.tick % 5 === 0) schedule();
   }
 
   // ---------------- 总开关 ----------------
@@ -253,7 +262,10 @@
     if (type === 'search' || type === 'profile') listState = updateList(type);
     else { removeDock(); ui.lastHealth = ''; } // 离开列表页：读取状态清掉，不沿用上一个列表页的
     updateComments();
-    renderLauncher(listState && !listState.docked ? listState.health : null);
+    const listLaunch = listState && !listState.docked ? listState.health : null;
+    // 搜索读不到、被登录墙拦住优先于评论区失败
+    const launch = (listLaunch === 'fail' || listLaunch === 'blocked') ? listLaunch : (ui.commentMiss ? 'comment-miss' : listLaunch);
+    renderLauncher(launch);
     renderGuide(listState && listState.health);
   }
 
@@ -420,10 +432,12 @@
         onTier: (k) => onTier(k),
         sortShort: lens ? lens.label : sorted ? S.view.sortKeys.map((k) => M.METRICS[k].label).join('+') + (S.view.asc ? ' ↑' : '') : '',
       };
-      // 主页：账号作品总数（"已读取 18 / 60 条"）；真需求里有多少没过达标线（例如图文）
+      // 主页：账号作品总数（"已读取 18 / 60 条"）。
+      // 「另有 N 条真需求没过线」只给真需求这类看法：被「只看视频」挡住的图文。分档筛选本身就排除了 high 时不计。
       const works = type === 'profile' && S.profileStats ? S.profileStats.works : 0;
       const passSet = new Set(view.sorted.map((x) => x.v.id));
-      const excludedHigh = active ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
+      const tier = S.view.filter.tier;
+      const excludedHigh = active && !(tier && tier !== 'high') ? base.filter((v) => M.crTier(v) === 'high' && !passSet.has(v.id)).length : 0;
       vm.status = P.statusLine({
         health, blocked, count: vm.count, total: works, strongNeed: tiers.high, sorted: active,
         shown: passCount, loading: vm.loading, cap: vm.cap, excludedHigh, noSort: !canSort,
@@ -443,11 +457,12 @@
   function renderLauncher(state) {
     // state：null（不需要）| 'recognizing' | 'fail' | 'blocked' | 'paused' | 'stale'
     // "识别中"不弹启动器（每次进页面都会闪一下）；只在读不到、被拦、暂停、插件已更新时出现
-    const need = state && (state === 'paused' || state === 'stale' || ((S.route.type === 'search' || S.route.type === 'profile') && (state === 'fail' || state === 'blocked')));
+    const need = state && (state === 'paused' || state === 'stale' || state === 'comment-miss' || ((S.route.type === 'search' || S.route.type === 'profile') && (state === 'fail' || state === 'blocked')));
     if (!need) { if (ui.launcher) { ui.launcher.remove(); ui.launcher = null; } return; }
     const text = {
       recognizing: ['正在读取结果…', ''],
       fail: ['读不到结果：抖音页面可能刚更新', '复制诊断信息'],
+      'comment-miss': ['评论区读不到', '复制诊断信息'],
       blocked: ['抖音要求登录或验证，处理后会自动恢复', ''],
       paused: ['插件已暂停 · 点击恢复', ''],
       stale: ['插件已更新，请刷新页面', '刷新'],
@@ -459,7 +474,7 @@
       onclick: () => {
         if (state === 'paused') { setEnabled(true); announce('插件已恢复'); }
         else if (state === 'stale') location.reload();
-        else if (state === 'fail') copyDiagnostics(btn);
+        else if (state === 'fail' || state === 'comment-miss') copyDiagnostics(btn);
       } },
     kit.logo(26), h('span', { class: 'l-tx' }, h('b', null, text[0]), text[1] ? h('span', null, text[1]) : null));
     btn.dataset.sig = sig;
@@ -468,15 +483,36 @@
   }
 
   // ---------------- 评论区 ----------------
+  // 只有评论已经渲染，或这条视频的评论接口/fiber 已经到了，才算「该出现」。
+  // 精选信息流只带 modal_id、作者关评、0 评论，都不算失败。
+  // 列表曾经认出来过、后来消失，是用户收起，也不是失败；除非评论行还在页面上（选择器对不上）。
+  // 6 秒宽限从证据第一次出现起算，不从进路由起算，避免进页很久后才打开评论时闪一下失败。
+  function commentsExpected() {
+    const r = S.route, C = S.comments, vid = r.modalId || r.awemeId || '';
+    if (!(r.type === 'video' || r.modalId)) return false;
+    const items = !!document.querySelector('[data-e2e="comment-item"]');
+    if (ui.commentListFor === vid) return items;
+    return items || (C.awemeId === vid && C.map.size > 0);
+  }
+  function commentMissReady() {
+    if (!commentsExpected()) return false;
+    if (!ui.commentEvidenceAt) ui.commentEvidenceAt = Date.now();
+    return hydrated() && Date.now() - ui.commentEvidenceAt >= 6000;
+  }
   function updateComments() {
     const list = A.commentList();
+    const vid = S.route.modalId || S.route.awemeId || '';
     if (!list) {
       if (ui.cbar) { ui.cbar.el.remove(); ui.cbar = null; ui.cb = null; }
       if (CE.state.applied) CE.restore();
       if (commentLoader.running) commentLoader.stop('route'); // 评论区收起或换了面板：停，绝不替用户滚页面
       observeComments(null);
+      ui.commentMiss = commentMissReady();
       return;
     }
+    ui.commentListFor = vid;
+    ui.commentEvidenceAt = 0;
+    ui.commentMiss = false;
     if (!hydrated()) return;
     observeComments(list);
     ui.cbar = host('dsp-cbar', list.parentElement, list);
@@ -506,7 +542,6 @@
     const stats = E.barrierStats(all.length ? all : rows.map((r) => ({ text: r.item.textContent })));
     ui.commentStatsBase = all.length || rows.length; // 门槛词是按多少条统计的
     const m = commentMeta();
-    const vid = S.route.modalId || S.route.awemeId || '';
     const raw = store.findVideo(vid);
     const video = raw ? M.derive(raw, Date.now() / 1000) : null;
     const cand = S.candidates.get(vid);
@@ -907,7 +942,7 @@
 .l-tx { display: flex; flex-direction: column; }
 .l-tx b { font: 600 13px/20px var(--font); }
 .l-tx span { color: var(--cyan-text); font-size: 12px; line-height: 18px; }
-.l-fail .l-tx b, .l-blocked .l-tx b { color: var(--tier-low-text); }
+.l-fail .l-tx b, .l-blocked .l-tx b, .l-comment-miss .l-tx b { color: var(--tier-low-text); }
 .l-paused { opacity: .85; }
 .l-paused .dsp-logo { filter: grayscale(1); opacity: .6; }
 .l-recognizing .l-tx b { color: var(--t3); }

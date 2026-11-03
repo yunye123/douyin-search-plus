@@ -50,7 +50,7 @@
     } catch (e) { root.appendChild(h('style', null, CARD_CSS)); }
   }
 
-  const TIER_TEXT = { high: '真需求', mid: '收藏率', low: '收藏率', show: '收藏率', na: '样本少' };
+  const TIER_TEXT = { high: '真需求', mid: '一般', low: '有门槛', show: '展示型', na: '样本少' };
 
   // 每张卡的增强节点：WeakMap 记录卡片 → { host, root, sig }
   const anns = new WeakMap();
@@ -189,10 +189,10 @@
     if (opts.share != null) box.appendChild(h('div', { class: 'dd-share' }, '占账号总获赞 ', h('b', null, U.fmtPct(opts.share))));
     const verdicts = {
       high: '≥80% 真需求：观众存着回看，选题成立。',
-      mid: '40%~80%：有一定收藏价值，看内容形态再判断。',
-      low: '≤40% 有门槛：可能太难、太贵或进不去，去评论区看看卡在哪。',
+      mid: '大于 40% 且小于 80%：有一定收藏价值，看内容形态再判断。',
+      low: '10% 到 40%（含）有门槛：可能太难、太贵或进不去，去评论区看看卡在哪。',
       show: '<10% 展示型：好看但不实用，教程类慎跟。',
-      na: '样本太少，先看评论和同类视频再判断。',
+      na: M.tierLabel(v) === '缺数据' ? '收藏数没读到，先不判档。' : '点赞 < 100，样本太少，先看评论和同类视频再判断。',
     };
     box.appendChild(h('div', { class: 'dd-verdict v-' + tier }, verdicts[tier]));
     if (opts.dimReason) box.appendChild(h('div', { class: 'dd-why' }, '没进这次排序：' + opts.dimReason));
@@ -336,5 +336,5 @@
 `;
   DSP.css = (DSP.css || '') + DETAIL_CSS;
 
-  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, focusChip, detail };
+  DSP.cards = { render, removeAll, prune, showDetail, scheduleHide, hideDetail, focusChip, detail, detailCard };
 })();

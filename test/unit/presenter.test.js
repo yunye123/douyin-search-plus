@@ -18,6 +18,8 @@ test('数字输入：1w / 1万 / 1.5万 / 2k / 12,000', () => {
 test('排序描述', () => {
   assert.equal(P.sortText(['cr']), '按收藏率从高到低');
   assert.equal(P.sortText(['cr'], true), '按收藏率从低到高');
+  assert.equal(P.sortText(['createTime']), '按发布时间，新的在前');
+  assert.equal(P.sortText(['createTime'], true), '按发布时间，旧的在前');
   assert.equal(P.sortText(['collect', 'comment']), '综合排序（收藏 + 评论）');
   assert.equal(P.sortText([]), '');
 });
@@ -29,6 +31,24 @@ test('视角：主页才有账号 Top10；当前视图能认出视角', () => {
   assert.equal(P.matchLens(view).key, 'rising');
   assert.equal(P.matchLens({ sortKeys: ['dpd'], asc: false, filter: M.normFilter(null) }), null);
   assert.equal(P.matchLens({ sortKeys: ['cr'], asc: true, filter: M.normFilter(null) }), null);
+  const searchKeys = P.lensesFor('search').map((l) => l.key);
+  const profileKeys = P.lensesFor('profile').map((l) => l.key);
+  assert.deepEqual(searchKeys, ['need', 'ratio', 'rising', 'talk', 'newest', 'spread', 'mostSaved', 'barrier']);
+  assert.deepEqual(profileKeys, ['need', 'ratio', 'rising', 'talk', 'top10', 'newest', 'spread', 'mostSaved', 'barrier']);
+  for (const k of ['newest', 'spread', 'mostSaved', 'barrier']) assert.equal(P.LENSES.find((l) => l.key === k).only, undefined);
+  const empty = M.normFilter(null);
+  assert.equal(P.matchLens({ sortKeys: ['createTime'], asc: false, filter: empty }).key, 'newest');
+  assert.equal(P.matchLens({ sortKeys: ['sr'], asc: false, filter: empty }).key, 'spread');
+  assert.equal(P.matchLens({ sortKeys: ['collect'], asc: false, filter: empty }).key, 'mostSaved');
+  assert.equal(P.matchLens({ sortKeys: ['collect'], asc: false, filter: M.normFilter({ minCr: 0.8, kind: 'video' }) }).key, 'need');
+  assert.equal(P.matchLens({ sortKeys: ['comment'], asc: false, filter: M.normFilter({ tier: 'low' }) }).key, 'barrier');
+  assert.equal(P.matchLens({ sortKeys: ['comment'], asc: false, filter: empty }), null);
+  assert.equal(M.METRICS.createTime.kind, 'time');
+  const barrier = P.LENSES.find((l) => l.key === 'barrier');
+  assert.deepEqual(barrier.sort, ['comment']);
+  assert.equal(barrier.filter.tier, 'low');
+  assert.equal(barrier.filter.kind, undefined);
+  assert.equal(barrier.filter.minCr, undefined);
 });
 
 test('门槛描述与快捷项开关', () => {

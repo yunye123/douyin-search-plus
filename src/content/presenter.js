@@ -14,6 +14,11 @@
     { key: 'rising', label: '起飞中', sort: ['dpd'], filter: { maxAgeDays: 30 }, desc: '近 30 天，按日均赞', tip: '只看近 30 天发布的，按"点赞 ÷ 发布天数"排，找正在涨的新视频' },
     { key: 'talk', label: '热议', sort: ['er'], desc: '按评论率从高到低', tip: '评论率 = 评论 ÷ 点赞。越高越能引发讨论，评论区常藏着下一个选题' },
     { key: 'top10', label: '账号 Top10', sort: ['collect', 'comment'], filter: { kind: 'video', maxAgeDays: 365 }, desc: '近一年视频，收藏名次 + 评论名次', tip: '做账号对标用：近一年、只看视频，按收藏名次 + 评论名次相加排，同分按收藏数', only: 'profile' },
+    // 下面四条不带 only：搜索和主页都出现。不改上面五条的条件和顺序。
+    { key: 'newest', label: '最新发布', sort: ['createTime'], desc: '按发布时间，新的在前', tip: '没有发布时间的排在最后' },
+    { key: 'spread', label: '传播型', sort: ['sr'], desc: '按转发率从高到低，点赞不足 100 的排最后', tip: '转发率 = 转发 ÷ 点赞。点赞太少时比率波动大，这些结果排在最后' },
+    { key: 'mostSaved', label: '收藏最多', sort: ['collect'], desc: '视频和图文都算，只按收藏数从多到少', tip: '不设收藏率门槛，收藏多的在前' },
+    { key: 'barrier', label: '有门槛', sort: ['comment'], filter: { tier: 'low' }, desc: '收藏率 10% 到 40%（含）、点赞不少于 100，按评论数', tip: '视频和图文都算。点赞少于 100 的不进这一档，评论多的在前' },
   ];
   function lensesFor(type) { return LENSES.filter((l) => !l.only || l.only === type); }
   // 当前视图对应哪个视角（排序维度与门槛都一致才算）
@@ -22,7 +27,8 @@
       if (l.sort.join('+') !== view.sortKeys.join('+') || view.asc) continue;
       const want = M.normFilter(l.filter || null);
       const f = view.filter;
-      if (want.maxAgeDays === f.maxAgeDays && want.kind === f.kind && want.minCr === f.minCr && !f.tier && !f.min.digg && !f.min.comment && !f.min.collect && !f.min.share) return l;
+      if (want.maxAgeDays === f.maxAgeDays && want.kind === f.kind && want.minCr === f.minCr && want.tier === f.tier
+        && want.min.digg === f.min.digg && want.min.comment === f.min.comment && want.min.collect === f.min.collect && want.min.share === f.min.share) return l;
     }
     return null;
   }
@@ -48,7 +54,10 @@
   function sortText(keys, asc) {
     if (!keys || !keys.length) return '';
     const names = keys.map((k) => M.METRICS[k].label);
-    if (keys.length === 1) return '按' + names[0] + (asc ? '从低到高' : '从高到低');
+    if (keys.length === 1) {
+      if (M.METRICS[keys[0]] && M.METRICS[keys[0]].kind === 'time') return '按' + names[0] + (asc ? '，旧的在前' : '，新的在前');
+      return '按' + names[0] + (asc ? '从低到高' : '从高到低');
+    }
     return '综合排序（' + names.join(' + ') + (asc ? '，倒序' : '') + '）';
   }
 

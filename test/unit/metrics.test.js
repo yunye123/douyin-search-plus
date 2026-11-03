@@ -1,6 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const M = require('../../src/content/metrics.js');
 const U = require('../../src/content/util.js');
 
@@ -136,6 +138,68 @@ test('按分档筛选与未达标原因', () => {
   assert.equal(M.failReason(c, { kind: 'video' }), '图文');
   assert.equal(M.failReason(b, { min: { digg: 10000 } }), '赞 < 1万');
   assert.equal(M.failReason(a, { minCr: 0.8 }), '');
+});
+
+test('分档区间文案与比较符同一边界，正好 40% 仍是有门槛', () => {
+  assert.equal(M.CR_TIERS.high.range, '≥80%');
+  assert.equal(M.CR_TIERS.mid.range, '大于 40% 且小于 80%');
+  assert.equal(M.CR_TIERS.low.range, '10% 到 40%（含）');
+  assert.equal(M.CR_TIERS.show.range, '<10%');
+  assert.equal(M.CR_TIERS.na.range, '点赞<100');
+  assert.equal(M.crTier(mk(1, { digg: 1000, collect: 800 })), 'high');
+  assert.equal(M.crTier(mk(1, { digg: 1000, collect: 401 })), 'mid');
+  assert.equal(M.crTier(mk(1, { digg: 1000, collect: 400 })), 'low');
+  assert.equal(M.crTier(mk(1, { digg: 1000, collect: 100 })), 'low');
+  assert.equal(M.crTier(mk(1, { digg: 1000, collect: 99 })), 'show');
+  assert.equal(M.crTier(mk(1, { digg: 100, collect: 10 })), 'low');
+  assert.equal(M.crTier(mk(1, { digg: 99, collect: 90 })), 'na');
+  const popup = fs.readFileSync(path.join(__dirname, '../../src/popup/popup.html'), 'utf8');
+  assert.ok(popup.includes(M.CR_TIERS.mid.range), popup);
+  assert.ok(popup.includes(M.CR_TIERS.low.range), popup);
+  for (const old of ['40%~80%', '40% ~ 80%', '40~80%', '10%~40%', '10% ~ 40%', '10~40%', '>40% 且 <80%', '10%～40%']) {
+    assert.equal(popup.includes(old), false, old);
+  }
+});
+
+test('按发布时间：新的在前，没有时间的始终在最后', () => {
+  const list = [
+    mk('old', { createTime: NOW - 10 * 86400 }),
+    mk('new', { createTime: NOW - 86400 }),
+    mk('none', { createTime: 0 }),
+  ];
+  assert.deepEqual(M.sortList(list, ['createTime']).map((x) => x.v.id), ['new', 'old', 'none']);
+  assert.deepEqual(M.sortList(list, ['createTime'], true).map((x) => x.v.id), ['old', 'new', 'none']);
+});
+
+test('转发率排序：样本少沉底', () => {
+  const list = [
+    mk('low', { digg: 10, share: 9 }),
+    mk('hi', { digg: 1000, share: 400 }),
+    mk('mid', { digg: 500, share: 50 }),
+  ];
+  assert.deepEqual(M.sortList(list, ['sr']).map((x) => x.v.id), ['hi', 'mid', 'low']);
+  assert.deepEqual(M.sortList(list, ['sr'], true).map((x) => x.v.id), ['mid', 'hi', 'low']);
+});
+
+test('收藏最多不看比率，图文和样本少都按收藏数', () => {
+  const list = [
+    mk('v', { digg: 1000, collect: 100 }),
+    mk('n', { digg: 50, collect: 800, kind: 'note' }),
+    mk('s', { digg: 10, collect: 400 }),
+  ];
+  assert.deepEqual(M.sortList(list, ['collect']).map((x) => x.v.id), ['n', 's', 'v']);
+});
+
+test('有门槛档含 10% 和 40%，点赞少于 100 的不进，按评论数', () => {
+  const list = [
+    mk('edge40', { digg: 1000, collect: 400, comment: 5 }),
+    mk('edge10', { digg: 1000, collect: 100, comment: 9, kind: 'note' }),
+    mk('mid', { digg: 1000, collect: 401, comment: 50 }),
+    mk('show', { digg: 1000, collect: 99, comment: 80 }),
+    mk('na', { digg: 99, collect: 40, comment: 20 }),
+    mk('talk', { digg: 1000, collect: 200, comment: 30 }),
+  ];
+  assert.deepEqual(M.sortList(M.filterList(list, { tier: 'low' }), ['comment']).map((x) => x.v.id), ['talk', 'edge10', 'edge40']);
 });
 
 test('倒序时样本少和缺数据仍排在最后', () => {
