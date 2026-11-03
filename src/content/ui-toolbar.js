@@ -49,7 +49,7 @@
     els.progress = h('div', { class: 'progress', 'aria-hidden': 'true' }, els.progressFill = h('i'));
     bar.append(status, els.dist, actions, els.progress);
 
-    bindTip(els.sort, () => ({ title: '排序', body: '选一个看法重排结果：真需求、起飞中、热议，或任意指标的组合。' }), api.layer());
+    bindTip(els.sort, () => ({ title: '排序', body: '基础：点赞、评论、收藏、时长；进阶：真需求、起飞中等。' }), api.layer());
     bindTip(els.filter, () => ({ title: '达标线', body: '只看过线的结果，例如收藏率 ≥ 80%、近 30 天、赞 ≥ 1万。没过线的会变暗沉到最后，不会消失。' }), api.layer());
     bindTip(els.load, () => (api.loading()
       ? { title: '停止加载', body: '停在这里，已读到的都还在。' }
@@ -146,15 +146,31 @@
 
   // ---------------- 排序弹层 ----------------
   const LENS_ICON = { need: 'star', ratio: 'layers', rising: 'arrowUp', talk: 'comment', top10: 'table', newest: 'clock', spread: 'share', mostSaved: 'heart', barrier: 'warn' };
+  const BASIC_ICON = { digg: 'heart', comment: 'comment', collect: 'star', duration: 'clock' };
   function sortPanel(vm, api) {
     const panel = h('div', { class: 'pop-sort' });
-    panel.appendChild(h('div', { class: 'pop-h' }, '选题看法'));
-    const lensBox = h('div', { class: 'lens-list', role: 'group', 'aria-label': '选题看法' });
+    panel.appendChild(h('div', { class: 'pop-h' }, '基础筛选'));
+    const basicBox = h('div', { class: 'lens-list', role: 'group', 'aria-label': '基础筛选' });
+    for (const b of P.BASIC_SORTS) {
+      const on = vm.basic === b.key;
+      basicBox.appendChild(h('button', {
+        class: 'lens' + (on ? ' on' : ''), type: 'button', 'aria-pressed': on ? 'true' : 'false', 'data-basic': b.key,
+        'data-autofocus': on ? '' : null,
+        onclick: () => { api.applyBasic(b.key); closePop(true); },
+      },
+      h('span', { class: 'lens-ic' }, icon(BASIC_ICON[b.key] || 'sort', 16)),
+      h('span', { class: 'lens-tx' }, h('b', null, b.label), h('span', null, on && vm.asc ? b.ascDesc : b.desc)),
+      on ? icon('check', 16, 'lens-ck') : null));
+    }
+    panel.appendChild(basicBox);
+
+    panel.appendChild(h('div', { class: 'pop-h' }, '进阶筛选'));
+    const lensBox = h('div', { class: 'lens-list', role: 'group', 'aria-label': '进阶筛选' });
     for (const l of P.lensesFor(vm.type)) {
       const on = vm.lens === l.key;
       lensBox.appendChild(h('button', {
         class: 'lens' + (on ? ' on' : ''), type: 'button', 'aria-pressed': on ? 'true' : 'false', 'data-lens': l.key,
-        'data-autofocus': on || (!vm.lens && l.key === 'need') ? '' : null,
+        'data-autofocus': on || (!vm.basic && !vm.lens && l.key === 'need') ? '' : null,
         onclick: () => { api.applyLens(l.key); closePop(true); },
       },
       h('span', { class: 'lens-ic' }, icon(LENS_ICON[l.key] || 'sort', 16)),
@@ -163,9 +179,9 @@
     }
     panel.appendChild(lensBox);
 
-    // 自定义排序：单项指标 / 组合 / 方向，默认折叠（最常用的是上面几种看法）
-    // 用户点过折叠按钮就以用户为准；否则按当前排序是不是"自定义"决定默认展开与否
-    const open = vm.customOpen != null ? vm.customOpen : (!vm.lens && vm.sortKeys.length > 0);
+    // 自定义排序：单项指标 / 组合 / 方向，默认折叠。基础筛选和看法都展开；只有当前是自定义排序时才默认展开
+    // 用户点过折叠按钮就以用户为准
+    const open = vm.customOpen != null ? vm.customOpen : (!vm.basic && !vm.lens && vm.sortKeys.length > 0);
     const toggle = h('button', { class: 'custom-toggle', type: 'button', 'aria-expanded': open ? 'true' : 'false', 'data-dsp': 'custom', onclick: () => api.toggleCustom(!open) },
       icon('chevron', 14, 'tg-ic'), h('b', null, '自定义排序'), h('span', { class: 'pop-hint' }, '任选指标、组合、方向'));
     panel.appendChild(h('div', { class: 'custom-row' }, toggle,

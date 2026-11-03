@@ -51,6 +51,24 @@ test('视角：主页才有账号 Top10；当前视图能认出视角', () => {
   assert.equal(barrier.filter.minCr, undefined);
 });
 
+test('基础排序：时长文案，点中时不点亮看法', () => {
+  assert.equal(P.sortText(['duration']), '按视频时长从长到短');
+  assert.equal(P.sortText(['duration'], true), '按视频时长从短到长');
+  assert.deepEqual(P.BASIC_SORTS.map((b) => b.key), ['digg', 'comment', 'collect', 'duration']);
+  const empty = M.normFilter(null);
+  for (const b of P.BASIC_SORTS) {
+    assert.equal(b.label, M.METRICS[b.key].label);
+    const view = { sortKeys: [b.key], asc: false, filter: empty };
+    const rev = { sortKeys: [b.key], asc: true, filter: empty };
+    assert.equal(P.displayLens(view, true), null, b.key);
+    assert.equal(P.displayLens(rev, true), null, b.key);
+    if (b.key === 'collect') assert.equal(P.matchLens(view).key, 'mostSaved');
+    else assert.equal(P.matchLens(view), null, b.key);
+    assert.equal(P.matchLens(rev), null, b.key);
+  }
+  assert.equal(P.matchLens({ sortKeys: ['comment'], asc: false, filter: M.normFilter({ tier: 'low' }) }).key, 'barrier');
+});
+
 test('门槛描述与快捷项开关', () => {
   assert.equal(P.filterText({ min: { digg: 10000 }, minCr: 0.8, maxAgeDays: 30, kind: 'video' }), '赞 ≥ 1万、收藏率 ≥ 80%、近 30 天、只看视频');
   const q = P.QUICK_FILTERS.find((x) => x.key === 'cr80');

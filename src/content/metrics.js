@@ -19,6 +19,7 @@
     er:      { label: '评论率', short: '评论率', kind: 'ratio', formula: '评论 ÷ 点赞', tip: '评论 ÷ 点赞。越高说明越能引发讨论；先看评论是求助还是灌水再下结论' },
     dpd:     { label: '日均赞', short: '日均赞', kind: 'rate', formula: '点赞 ÷ 发布天数', tip: '点赞 ÷ 发布天数。衡量涨得多快，用来发现正在起飞的新视频' },
     createTime: { label: '发布时间', short: '发布', kind: 'time', tip: '发布时间。新的在前；没有发布时间的排在最后' },
+    duration: { label: '视频时长', short: '时长', kind: 'count', tip: '视频有多长。从长到短排；图文和没读到时长的排在最后，倒序也不会翻到前面' },
   };
 
   // 由原始记录算出派生指标
@@ -36,6 +37,7 @@
       ageDays,
       dn: rec.createTime > 0 ? Math.max(0, (at - rec.createTime) / 86400) : 0,
       dpd: ageDays > 0 && digg != null ? digg / ageDays : 0,
+      duration: rec.durationMs > 0 ? rec.durationMs / 1000 : 0,
       lowSample: !(digg >= RATIO_MIN_DIGG),
     });
   }
@@ -77,6 +79,7 @@
     const x = v[k];
     const meta = METRICS[k];
     if (meta && meta.kind === 'time' && !(x > 0)) return -1e15; // 没有发布时间的沉底
+    if (k === 'duration' && (v.kind === 'note' || !(x > 0))) return -1e15; // 图文和没有时长的沉底
     if (meta && meta.kind === 'ratio' && v.lowSample) return x - 1e6;
     return x;
   }
@@ -115,7 +118,7 @@
     }
     if (ascending) {
       // 倒序只翻转"可靠"的那部分：样本少（比率类）和缺数据的始终排在最后，不能因为倒序冲到第一
-      const unreliable = (v) => ks.some((k) => v[k] == null || (METRICS[k].kind === 'time' && !(v[k] > 0)) || (METRICS[k].kind === 'ratio' && v.lowSample));
+      const unreliable = (v) => ks.some((k) => v[k] == null || (METRICS[k].kind === 'time' && !(v[k] > 0)) || (k === 'duration' && (v.kind === 'note' || !(v[k] > 0))) || (METRICS[k].kind === 'ratio' && v.lowSample));
       const good = items.filter((it) => !unreliable(it.v)).reverse();
       const bad = items.filter((it) => unreliable(it.v));
       return good.concat(bad);

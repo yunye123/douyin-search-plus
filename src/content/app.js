@@ -130,7 +130,7 @@
       count: c ? c.count : S.videos.size,
       strongNeed: c ? (c.count ? c.strongNeed : null) : S.videos.size ? v.summary.strongNeed : null,
       // 和页面工具栏同一个说法：有看法时用看法名（「真需求」），否则列出指标
-      sortLabel: (() => { const l = DSP.presenter.matchLens(S.view); return l ? '「' + l.label + '」' : keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : ''; })(),
+      sortLabel: (() => { const l = DSP.presenter.displayLens(S.view, DSP.ui && DSP.ui.preferBasic); return l ? '「' + l.label + '」' : keys.length ? keys.map((k) => M.METRICS[k].label).join(' + ') : ''; })(),
       comments: S.comments.map.size,
       candidates: S.candidates.size,
       health: onList && DSP.ui && DSP.ui.health ? DSP.ui.health() : 'ok',

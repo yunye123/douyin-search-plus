@@ -202,6 +202,28 @@ test('有门槛档含 10% 和 40%，点赞少于 100 的不进，按评论数', 
   assert.deepEqual(M.sortList(M.filterList(list, { tier: 'low' }), ['comment']).map((x) => x.v.id), ['talk', 'edge10', 'edge40']);
 });
 
+test('视频时长按秒排，图文和缺时长沉底，倒序也不翻上来', () => {
+  assert.equal(M.METRICS.duration.label, '视频时长');
+  assert.equal(M.METRICS.duration.kind, 'count');
+  assert.equal(mk('sec', { durationMs: 12500 }).duration, 12.5);
+  assert.equal(mk('zero', { durationMs: 0 }).duration, 0);
+  assert.equal(mk('miss', {}).duration, 0);
+  const note = mk('note', { kind: 'note', durationMs: 900 * 1000, digg: 500 });
+  assert.equal(note.duration, 900); // 派生仍是秒；沉底发生在排序，不靠把时长改成空
+  const list = [
+    mk('short', { durationMs: 30 * 1000 }),
+    note,
+    mk('long', { durationMs: 600 * 1000 }),
+    mk('none', { durationMs: 0 }),
+    mk('mid', { durationMs: 120 * 1000 }),
+  ];
+  assert.deepEqual(M.sortList(list, ['duration']).map((x) => x.v.id), ['long', 'mid', 'short', 'none', 'note']);
+  assert.deepEqual(M.sortList(list, ['duration'], true).map((x) => x.v.id), ['short', 'mid', 'long', 'none', 'note']);
+  assert.deepEqual(M.sortList([note, mk('vid', { digg: 10 })], ['digg']).map((x) => x.v.id), ['note', 'vid']);
+  assert.equal(M.CR_TIERS.high.range, '≥80%');
+  assert.equal(M.RATIO_MIN_DIGG, 100);
+});
+
 test('倒序时样本少和缺数据仍排在最后', () => {
   const list = [
     mk('a', { digg: 1000, collect: 900 }),
