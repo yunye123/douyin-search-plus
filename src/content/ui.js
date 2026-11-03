@@ -21,6 +21,7 @@
     commentListFor: '',       // 这条视频的评论列表曾经认出来过；之后消失是收起，不是选择器失效
     commentEvidenceAt: 0,     // 评论证据第一次出现的时刻；6 秒宽限从这里起算，不从进路由起算
     combo: false,
+    preferBasic: false,   // 点了基础筛选：面板高亮基础项，不把同条件的看法点亮
     pop: null,                    // 当前打开的弹层 { kind, anchor, panel }
     rendered: '',
     paused: false,
@@ -336,7 +337,8 @@
     const canSort = !located || !cards.length || IP.supports(located.el, cards);
     const sorted = canSort && S.view.sortKeys.length > 0;
     const active = canSort && S.view.active;
-    const lens = canSort ? P.matchLens(S.view) : null;
+    const basic = canSort && ui.preferBasic && S.view.sortKeys.length === 1 ? P.BASIC_SORTS.find((b) => b.key === S.view.sortKeys[0]) || null : null;
+    const lens = canSort ? P.displayLens(S.view, !!basic) : null;
     // 账号 Top10：第 11 名以后照样排序，但名次变灰、卡片变暗，不和前 10 混在一起
     const topN = lens && lens.key === 'top10' ? 10 : 0;
     const orderIds = view.sorted.map((x) => x.v.id);
@@ -430,7 +432,7 @@
         candidates: S.candidates.size,
         tiers, tierFilter: S.view.filter.tier, layer: ui.layer,
         onTier: (k) => onTier(k),
-        sortShort: lens ? lens.label : sorted ? S.view.sortKeys.map((k) => M.METRICS[k].label).join('+') + (S.view.asc ? ' ↑' : '') : '',
+        sortShort: basic ? basic.label + (S.view.asc ? ' ↑' : '') : lens ? lens.label : sorted ? S.view.sortKeys.map((k) => M.METRICS[k].label).join('+') + (S.view.asc ? ' ↑' : '') : '',
       };
       // 主页：账号作品总数（"已读取 18 / 60 条"）。
       // 「另有 N 条真需求没过线」只给真需求这类看法：被「只看视频」挡住的图文。分档筛选本身就排除了 high 时不计。
@@ -444,10 +446,10 @@
       });
       // 看法写在"排序"按钮上、达标线条件在按钮角标和弹层里，状态句不重复；悬停状态句看全文和条件
       vm.statusTitle = vm.status.map((s) => s.t).filter(Boolean).join(' · ') +
-        (vm.filterCount ? '\n达标线：' + P.filterText(S.view.filter) : '') + (lens ? '\n看法：' + lens.label + '（' + lens.desc + '）' : '');
+        (vm.filterCount ? '\n达标线：' + P.filterText(S.view.filter) : '') + (basic ? '\n排序：' + basic.label + '（' + (S.view.asc ? basic.ascDesc : basic.desc) + '）' : '') + (lens ? '\n看法：' + lens.label + '（' + lens.desc + '）' : '');
       if (active && passCount === 0 && vm.count) vm.status = [{ t: '没有结果过达标线', tone: 'warn' }, { t: P.filterText(S.view.filter) || '', tone: 'dim' }];
       T.renderBar(ui.bar, vm);
-      ui.vm = Object.assign(vm, { passCount, view, base, lens, topN, canSort, active });
+      ui.vm = Object.assign(vm, { passCount, view, base, lens, basic, topN, canSort, active });
     }
     if (health !== ui.lastHealth) { ui.lastHealth = health; }
     return { health, docked, count: S.videos.size };
@@ -640,7 +642,7 @@
     version,
     loading: () => listLoader.running,
     cap: capFor,
-    resetView: () => { store.resetView(); announce('已恢复抖音原来的顺序'); requestAnimationFrame(() => { update(); scrollToListTop(); }); },
+    resetView: () => { ui.preferBasic = false; ui.combo = false; store.resetView(); announce('已恢复抖音原来的顺序'); requestAnimationFrame(() => { update(); scrollToListTop(); }); },
     retry: () => { ui.routeAt = Date.now(); if (DSP.requestRescan) DSP.requestRescan(); schedule(); },
     copyDiagnostics: (btn) => copyDiagnostics(btn),
     toggleLoad: () => {
@@ -658,6 +660,7 @@
     applyLens: (key) => {
       const l = P.LENSES.find((x) => x.key === key);
       if (!l) return;
+      ui.preferBasic = false;
       ui.combo = l.sort.length > 1;
       guideDone(); // 已经会用排序看法了，引导不再出现
       store.setFilter(l.filter || {});
@@ -665,7 +668,21 @@
       announce('已按「' + l.label + '」排好：' + l.desc);
       requestAnimationFrame(() => { update(); scrollToListTop(); }); // 第 1 名滚到工具栏下面
     },
+    applyBasic: (key) => {
+      const b = P.BASIC_SORTS.find((x) => x.key === key);
+      if (!b) return;
+      const same = ui.preferBasic && S.view.sortKeys.length === 1 && S.view.sortKeys[0] === key;
+      ui.preferBasic = true;
+      ui.combo = false;
+      guideDone();
+      const asc = same ? !S.view.asc : false;
+      if (!same) store.setFilter({});
+      store.setSort([key], asc);
+      announce('已按「' + b.label + '」排好：' + (asc ? b.ascDesc : b.desc));
+      requestAnimationFrame(() => { update(); scrollToListTop(); });
+    },
     toggleMetric: (k) => {
+      ui.preferBasic = false;
       let keys = S.view.sortKeys.slice();
       if (!ui.combo) keys = keys.length === 1 && keys[0] === k ? [] : [k];
       else {
@@ -676,7 +693,7 @@
       }
       store.setSort(keys);
     },
-    setCombo: (on) => { ui.combo = on; if (!on && S.view.sortKeys.length > 1) store.setSort(S.view.sortKeys.slice(0, 1)); reopen(); },
+    setCombo: (on) => { ui.preferBasic = false; ui.combo = on; if (!on && S.view.sortKeys.length > 1) store.setSort(S.view.sortKeys.slice(0, 1)); reopen(); },
     setAsc: (asc) => { store.setSort(S.view.sortKeys.length ? S.view.sortKeys : ['collect'], asc); reopen(); },
     filter: () => S.view.filter,
     patchFilter: (p) => store.setFilter(Object.assign({}, S.view.filter, p)),
@@ -695,7 +712,7 @@
     addTop: (n) => {
       const top = (ui.vm ? ui.vm.view.sorted.map((x) => x.v.id) : []).slice(0, n);
       if (!top.length) return;
-      const lens = P.matchLens(S.view);
+      const lens = P.displayLens(S.view, ui.preferBasic);
       const label = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
       const keep = new Set(top);
       const before = []; // [id, 改动前的条目拷贝；新加的为 null]，撤销用
@@ -764,7 +781,7 @@
     const act = panel.getRootNode().activeElement;
     let key = null, bkIndex = -1;
     if (act && panel.contains(act)) {
-      for (const a of ['data-quick', 'data-metric', 'data-lens', 'data-dir', 'data-tab', 'data-dsp', 'data-min']) {
+      for (const a of ['data-quick', 'data-metric', 'data-lens', 'data-basic', 'data-dir', 'data-tab', 'data-dsp', 'data-min']) {
         if (act.hasAttribute(a)) { key = '[' + a + '="' + act.getAttribute(a) + '"]'; break; }
       }
       if (!key && act.classList.contains('sw')) key = '.sw';
@@ -788,7 +805,7 @@
   function popVm() {
     const v = ui.vm || {};
     return {
-      type: S.route.type, lens: v.lens ? v.lens.key : '', sortKeys: S.view.sortKeys, sorted: S.view.sortKeys.length > 0, asc: S.view.asc, combo: ui.combo,
+      type: S.route.type, lens: v.lens ? v.lens.key : '', basic: v.basic ? v.basic.key : '', sortKeys: S.view.sortKeys, sorted: S.view.sortKeys.length > 0, asc: S.view.asc, combo: ui.combo,
       filter: S.view.filter, passCount: v.passCount || 0, count: v.count || 0, badges: S.settings.badges,
       works: S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0,
       lowSample: (v.tiers && v.tiers.na) || 0, customOpen: ui.customOpen == null ? null : ui.customOpen,
@@ -819,7 +836,7 @@
       x.rankWas = 0;
       x.topN = 0; // 手动加入；"把前 N 条加入候选"会改成 N
       x.rankSession = S.session;
-      const lens = P.matchLens(S.view);
+      const lens = P.displayLens(S.view, ui.preferBasic);
       x.lensLabel = lens ? lens.label : P.sortText(S.view.sortKeys, S.view.asc);
       // 名次是在"当时读到的这些"里排的：记下读了多少、账号一共多少
       x.rankOf = { count: ui.vm ? ui.vm.count : 0, total: S.route.type === 'profile' && S.profileStats ? S.profileStats.works : 0 };

@@ -18,6 +18,20 @@ const visualOrder = (page) => page.evaluate(() => {
     .map((li) => ({ id: (/(\d{15,})/.exec(li.querySelector('a').getAttribute('href')) || [])[1], o: +li.style.order || 0, dim: li.classList.contains('dsp-dim') }))
     .sort((a, b) => a.o - b.o);
 });
+// 时长排序：有时长的视频按长短排，图文和缺时长的必须留在后面
+function assertDurationOrder(ids, registry, asc) {
+  let prev = asc ? -Infinity : Infinity;
+  let sunk = false;
+  for (const id of ids) {
+    const v = registry.get(id);
+    expect(v, id).toBeTruthy();
+    if (v.isNote || !(v.durMs > 0)) { sunk = true; continue; }
+    expect(sunk).toBe(false);
+    if (asc) expect(v.durMs).toBeGreaterThanOrEqual(prev);
+    else expect(v.durMs).toBeLessThanOrEqual(prev);
+    prev = v.durMs;
+  }
+}
 
 test('搜索页：工具栏出现、卡片上有收藏率标签', async ({ page }) => {
   await page.goto(urls.search('界面测试'));
@@ -974,6 +988,71 @@ test('评论列表选择器缺失时说明读不到，并可复制诊断', async
   await expect(page.locator('#dsp-cbar')).toHaveCount(0);
   await page.locator('[data-dsp="launcher"]').click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('"commentItems"');
+});
+
+test('排序面板分基础筛选和进阶筛选；点视频时长按长短排，图文沉底', async ({ page, ext }) => {
+  await page.goto(urls.search('新看法'));
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 20);
+  await dismissCoach(page);
+  await expect(dsp(page, 'sort')).toHaveAttribute('aria-description', /基础：点赞、评论、收藏、时长；进阶：真需求、起飞中等/);
+  await dsp(page, 'sort').click();
+  await expect(page.locator('.pop-sort .pop-h')).toHaveText(['基础筛选', '进阶筛选']);
+  await expect(page.locator('[data-basic] b')).toHaveText(['点赞', '评论', '收藏', '视频时长']);
+  expect(await page.locator('[data-lens]').evaluateAll((els) => els.map((e) => e.dataset.lens))).toEqual(['need', 'ratio', 'rising', 'talk', 'newest', 'spread', 'mostSaved', 'barrier']);
+  await expect(page.locator('[data-dsp="custom"]')).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('.pop-sort')).not.toContainText('1分钟');
+  await expect(page.locator('.pop-sort')).not.toContainText('5分钟以上');
+  await page.locator('[data-basic="duration"]').click();
+  const s = await until(page, (x) => x.view.sortKeys.join() === 'duration' && x.view.asc === false && x.sortedIds.length > 0);
+  expect(s.view.filter.kind).toBe('all');
+  expect(s.view.filter.minCr).toBe(0);
+  expect(s.popup.sortLabel).toBe('视频时长');
+  assertDurationOrder(s.sortedIds, ext.sim.registry, false);
+  const firstSunk = s.sortedIds.findIndex((id) => {
+    const v = ext.sim.registry.get(id);
+    return v.isNote || !(v.durMs > 0);
+  });
+  expect(firstSunk).toBeGreaterThan(0);
+  for (const id of ['7480000000000000101', '7480000000000000251']) expect(s.sortedIds.indexOf(id)).toBeGreaterThanOrEqual(firstSunk);
+  await expect(dsp(page, 'sort')).toContainText('视频时长');
+  await dsp(page, 'sort').click();
+  await expect(page.locator('[data-basic="duration"]')).toHaveClass(/on/);
+  await expect(page.locator('[data-lens].on')).toHaveCount(0);
+  await expect(page.locator('[data-dsp="custom"]')).toHaveAttribute('aria-expanded', 'false');
+  await page.locator('[data-basic="duration"]').click();
+  const rev = await until(page, (x) => x.view.sortKeys.join() === 'duration' && x.view.asc === true);
+  assertDurationOrder(rev.sortedIds, ext.sim.registry, true);
+  for (const id of ['7480000000000000101', '7480000000000000251']) {
+    const v = ext.sim.registry.get(id);
+    const at = rev.sortedIds.indexOf(id);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(rev.sortedIds.slice(at).every((x) => {
+      const row = ext.sim.registry.get(x);
+      return row.isNote || !(row.durMs > 0);
+    })).toBe(true);
+    expect(v.isNote).toBe(true);
+  }
+  await dsp(page, 'sort').click();
+  await page.locator('[data-basic="collect"]').click();
+  const saved = await until(page, (x) => x.view.sortKeys.join() === 'collect' && x.view.asc === false && !x.view.filter.minCr);
+  expect(saved.popup.sortLabel).toBe('收藏');
+  await dsp(page, 'sort').click();
+  await expect(page.locator('[data-basic="collect"]')).toHaveClass(/on/);
+  await expect(page.locator('[data-lens="mostSaved"]')).not.toHaveClass(/on/);
+  await expect(dsp(page, 'sort')).not.toContainText('收藏最多');
+  await page.keyboard.press('Escape');
+
+  await page.goto(urls.profile());
+  await ready(page);
+  await until(page, (x) => x.ui.docked && x.count >= 10);
+  await dismissCoach(page);
+  await dsp(page, 'sort').click();
+  await expect(page.locator('.pop-sort .pop-h')).toHaveText(['基础筛选', '进阶筛选']);
+  expect(await page.locator('[data-lens]').evaluateAll((els) => els.map((e) => e.dataset.lens))).toEqual(['need', 'ratio', 'rising', 'talk', 'top10', 'newest', 'spread', 'mostSaved', 'barrier']);
+  await page.locator('[data-basic="duration"]').click();
+  const profile = await until(page, (x) => x.route.type === 'profile' && x.view.sortKeys.join() === 'duration' && x.view.asc === false && x.sortedIds.length > 0);
+  assertDurationOrder(profile.sortedIds, ext.sim.registry, false);
 });
 
 test('候选篮表格预览能看到收藏率、分档和赞藏，并标明范围', async ({ page, ext }) => {

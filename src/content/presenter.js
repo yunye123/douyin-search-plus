@@ -21,6 +21,13 @@
     { key: 'barrier', label: '有门槛', sort: ['comment'], filter: { tier: 'low' }, desc: '收藏率 10% 到 40%（含）、点赞不少于 100，按评论数', tip: '视频和图文都算。点赞少于 100 的不进这一档，评论多的在前' },
   ];
   function lensesFor(type) { return LENSES.filter((l) => !l.only || l.only === type); }
+  // 基础筛选：一点按这一项排，再点切换方向。条件和顺序与上面的看法无关。
+  const BASIC_SORTS = [
+    { key: 'digg', label: '点赞', desc: '按点赞从多到少', ascDesc: '按点赞从少到多' },
+    { key: 'comment', label: '评论', desc: '按评论从多到少', ascDesc: '按评论从少到多' },
+    { key: 'collect', label: '收藏', desc: '按收藏从多到少', ascDesc: '按收藏从少到多' },
+    { key: 'duration', label: '视频时长', desc: '按视频时长从长到短', ascDesc: '按视频时长从短到长' },
+  ];
   // 当前视图对应哪个视角（排序维度与门槛都一致才算）
   function matchLens(view) {
     for (const l of LENSES) {
@@ -31,6 +38,12 @@
         && want.min.digg === f.min.digg && want.min.comment === f.min.comment && want.min.collect === f.min.collect && want.min.share === f.min.share) return l;
     }
     return null;
+  }
+  // 基础项被点中时，面板不高亮看法。收藏从多到少和「收藏最多」的条件相同，matchLens 仍认出看法，这里单独压掉。
+  function displayLens(view, preferBasic) {
+    const keys = view && view.sortKeys || [];
+    if (preferBasic && keys.length === 1 && BASIC_SORTS.some((b) => b.key === keys[0])) return null;
+    return matchLens(view);
   }
 
   // 门槛快捷项
@@ -56,6 +69,7 @@
     const names = keys.map((k) => M.METRICS[k].label);
     if (keys.length === 1) {
       if (M.METRICS[keys[0]] && M.METRICS[keys[0]].kind === 'time') return '按' + names[0] + (asc ? '，旧的在前' : '，新的在前');
+      if (keys[0] === 'duration') return '按' + names[0] + (asc ? '从短到长' : '从长到短');
       return '按' + names[0] + (asc ? '从低到高' : '从高到低');
     }
     return '综合排序（' + names.join(' + ') + (asc ? '，倒序' : '') + '）';
@@ -122,6 +136,6 @@
     return out;
   }
 
-  DSP.presenter = { LENSES, lensesFor, matchLens, QUICK_FILTERS, parseCount, sortText, tierCounts, filterText, health, statusLine, SAMPLE_LOW };
+  DSP.presenter = { LENSES, lensesFor, BASIC_SORTS, matchLens, displayLens, QUICK_FILTERS, parseCount, sortText, tierCounts, filterText, health, statusLine, SAMPLE_LOW };
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') module.exports = DSP.presenter;
 })();
