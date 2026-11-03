@@ -18,6 +18,8 @@ button, select { font: inherit; color: inherit; }
 .name { flex: 1; display: flex; flex-direction: column; }
 .name b { font-size: 15px; line-height: 22px; }
 .name > span { color: var(--t3); font-size: 12px; line-height: 16px; }
+.update { margin-top: 2px; color: var(--amber-text); font-size: 12px; line-height: 16px; text-decoration: none; }
+.update:hover { text-decoration: underline; }
 
 .switch { position: relative; display: inline-flex; cursor: pointer; }
 .switch input { appearance: none; -webkit-appearance: none; position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }

@@ -1,5 +1,6 @@
 // 扩展弹窗：当前标签页状态、总开关、设置、口径说明、版本与反馈。
 // 设置读写 chrome.storage.local（内容脚本监听变化，实时生效）；页面状态向当前标签页的内容脚本询问。
+// 打开时对照 GitHub 上的版本号；有更新才在版本号下面提示。检查失败不显示，也不挡住这一页的状态。
 'use strict';
 
 const KEY = 'dsp.settings';
@@ -87,9 +88,18 @@ function renderStatus(st, settings) {
   sub.textContent = parts.join(' · ');
 }
 
+function checkUpdate(local) {
+  const api = globalThis.DSP_VERSION;
+  if (!api) return;
+  api.remoteNewerVersion(local, fetch).then((remote) => {
+    if (remote) api.showUpdate($('#update'), remote);
+  }).catch(() => {});
+}
+
 async function init() {
   const manifest = chrome.runtime.getManifest();
   setText('#version', 'v' + manifest.version);
+  checkUpdate(manifest.version);
   let settings = await getSettings();
   const tab = await activeTab();
   let st = await pageStatus(tab);

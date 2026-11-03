@@ -466,6 +466,51 @@ test('扩展弹窗：在抖音页上点开，认得出这一页并显示读取�
   await pp.reload();
   await expect(pp.locator('#status-title')).toContainText('搜索结果页');
   await expect(pp.locator('#status-sub')).toContainText('已读取 20 条');
+  await expect(pp.locator('#update')).toHaveCount(1);
+  await expect(pp.locator('#update')).toBeHidden();
+});
+
+// 仿真站会掐掉非抖音请求，所以这里把版本检查的 fetch 换成桩。
+async function openPopup(ext, mode) {
+  const id = await extensionId(ext.context);
+  const pp = await ext.context.newPage();
+  await pp.addInitScript((mode) => {
+    const orig = window.fetch.bind(window);
+    const url = 'https://raw.githubusercontent.com/yunye123/douyin-search-plus/main/manifest.json';
+    window.fetch = (input, init) => {
+      const u = typeof input === 'string' ? input : (input && input.url) || '';
+      if (u !== url) return orig(input, init);
+      window.__dspUpdateFetch = mode;
+      if (mode === 'fail') return Promise.reject(new TypeError('Failed to fetch'));
+      return Promise.resolve(new Response(mode, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    };
+  }, mode);
+  await pp.goto(`chrome-extension://${id}/src/popup/popup.html`);
+  return pp;
+}
+
+test('扩展弹窗：GitHub 上有更高版本时，版本号下出现更新提示', async ({ ext }) => {
+  const pp = await openPopup(ext, JSON.stringify({ version: '9.9.9' }));
+  const link = pp.locator('#update');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveText('有新版本 v9.9.9，重新下载后在扩展管理页点刷新。');
+  await expect(link).toHaveAttribute('href', 'https://github.com/yunye123/douyin-search-plus');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(pp.locator('#version')).toHaveText('v1.0.0');
+  await expect(pp.locator('#status-title')).toHaveText('当前页面不是抖音网页版');
+});
+
+test('扩展弹窗：版本检查失败时不显示提示，其余照常', async ({ ext }) => {
+  const pp = await openPopup(ext, 'fail');
+  await pp.waitForFunction(() => window.__dspUpdateFetch === 'fail');
+  await expect(pp.locator('#status-title')).toHaveText('当前页面不是抖音网页版');
+  await expect(pp.locator('#version')).toHaveText('v1.0.0');
+  await expect(pp.locator('#update')).toHaveCount(1);
+  await expect(pp.locator('#update')).toBeHidden();
+  const bad = await openPopup(ext, 'not-json');
+  await bad.waitForFunction(() => window.__dspUpdateFetch === 'not-json');
+  await expect(bad.locator('#status-title')).toHaveText('当前页面不是抖音网页版');
+  await expect(bad.locator('#update')).toBeHidden();
 });
 
 test('页面由 body 滚动时（真实抖音的方式）：选看法后第 1 名到工具栏下，↑ 跳转不被工具栏挡住，继续加载照常', async ({ page }) => {
