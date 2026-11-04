@@ -1,6 +1,7 @@
 // 界面端到端：用户的完整流程在仿真站上跑通（Playwright 的 CSS 选择器会自动穿透插件的 Shadow DOM）。
 'use strict';
 const { test, expect, state, until, ready, urls, extensionId } = require('./fixtures');
+const manifest = require('../../manifest.json');
 
 const dsp = (page, name) => page.locator(`[data-dsp="${name}"]`);
 async function dismissCoach(page) {
@@ -496,7 +497,7 @@ test('扩展弹窗：GitHub 上有更高版本时，版本号下出现更新提�
   await expect(link).toHaveText('有新版本 v9.9.9，重新下载后在扩展管理页点刷新。');
   await expect(link).toHaveAttribute('href', 'https://github.com/yunye123/douyin-search-plus');
   await expect(link).toHaveAttribute('target', '_blank');
-  await expect(pp.locator('#version')).toHaveText('v1.0.0');
+  await expect(pp.locator('#version')).toHaveText('v' + manifest.version);
   await expect(pp.locator('#status-title')).toHaveText('当前页面不是抖音网页版');
 });
 
@@ -504,7 +505,7 @@ test('扩展弹窗：版本检查失败时不显示提示，其余照常', async
   const pp = await openPopup(ext, 'fail');
   await pp.waitForFunction(() => window.__dspUpdateFetch === 'fail');
   await expect(pp.locator('#status-title')).toHaveText('当前页面不是抖音网页版');
-  await expect(pp.locator('#version')).toHaveText('v1.0.0');
+  await expect(pp.locator('#version')).toHaveText('v' + manifest.version);
   await expect(pp.locator('#update')).toHaveCount(1);
   await expect(pp.locator('#update')).toBeHidden();
   const bad = await openPopup(ext, 'not-json');
