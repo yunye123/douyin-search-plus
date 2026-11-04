@@ -7,6 +7,7 @@ const { pathToFileURL } = require('url');
 const { launch, urls } = require('../test/sim/launch');
 const { saveWebp } = require('./webp');
 
+const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
 const OUT = path.resolve(process.argv[2] || path.join(__dirname, '..', 'docs', 'screenshots'));
 const ONLY = process.argv[3] || '';
 const W = Number(process.argv[4] || 1600), H = Number(process.argv[5] || 900);
@@ -120,10 +121,10 @@ const scenes = {
   async popup(page) {
     // 弹窗页是扩展内页面；这里用 file:// 打开并注入 chrome API 替身，只用于截图
     await page.setViewportSize({ width: 360, height: 640 });
-    await page.addInitScript(() => {
+    await page.addInitScript((version) => {
       const store = { 'dsp.settings': { enabled: true, badges: true, loadCap: 100 }, 'dsp.candidates': [1, 2, 3, 4] };
       window.chrome = {
-        runtime: { getManifest: () => ({ version: '1.0.0' }) },
+        runtime: { getManifest: () => ({ version }) },
         storage: { local: { get: async (k) => (typeof k === 'string' ? { [k]: store[k] } : store), set: async (o) => Object.assign(store, o) } },
         tabs: {
           query: async () => [{ id: 1, url: 'https://www.douyin.com/search/AI' }],
@@ -131,7 +132,7 @@ const scenes = {
           create: () => {}, reload: () => {},
         },
       };
-    });
+    }, manifest.version);
     await page.goto(pathToFileURL(path.join(__dirname, '..', 'src', 'popup', 'popup.html')).href);
     await page.waitForTimeout(400);
     const h = await page.evaluate(() => document.body.scrollHeight);
